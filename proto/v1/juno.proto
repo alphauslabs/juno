@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package juno.proto.v1;
+
+option go_package = "github.com/alphauslabs/juno/v1";
+
+// Juno service definition.
+service Juno {
+  // Gets information about the cluster.
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+// Request message for the Jupiter.Status rpc.
+message StatusRequest {}
+
+// Response message for the Jupiter.Status rpc.
+message StatusResponse {}
