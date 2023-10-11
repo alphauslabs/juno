@@ -6,12 +6,50 @@ option go_package = "github.com/alphauslabs/juno/v1";
 
 // Juno service definition.
 service Juno {
-  // Gets information about the cluster.
-  rpc Status(StatusRequest) returns (StatusResponse);
+  // Attempt to acquire a named lock.
+  rpc Lock(LockRequest) returns (stream LockResponse);
+
+  // Release a previously acquired lock.
+  rpc Unlock(UnlockRequest) returns (UnlockResponse);
+
+  // Add an item to a set.
+  rpc AddToSet(AddToSetRequest) returns (AddToSetResponse);
 }
 
-// Request message for the Jupiter.Status rpc.
-message StatusRequest {}
+// Request message for the Jupiter.Lock rpc.
+message LockRequest {
+  // Required. The name of the lock.
+  string name = 1;
+}
 
-// Response message for the Jupiter.Status rpc.
-message StatusResponse {}
+// Response message for the Jupiter.Lock rpc.
+message LockResponse {
+  string name = 1;
+}
+
+// Request message for the Jupiter.Unlock rpc.
+message UnlockRequest {
+  // Required. The name of the lock.
+  string name = 1;
+}
+
+// Response message for the Jupiter.Unlock rpc.
+message UnlockResponse {}
+
+// Request message for the Jupiter.AddToSet rpc.
+message AddToSetRequest {
+  // Required. The key of the set.
+  string key = 1;
+
+  // Required. The value to add to the set specified in `key`.
+  string value = 2;
+}
+
+// Response message for the Jupiter.AddToSet rpc.
+message AddToSetResponse {
+  // The updated key.
+  string key = 1;
+
+  // The number of items within the set after add.
+  sint64 count = 2;
+}

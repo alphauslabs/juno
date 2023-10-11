@@ -18,8 +18,12 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type JunoClient interface {
-	// Gets information about the cluster.
-	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
+	// Attempt to acquire a named lock.
+	Lock(ctx context.Context, in *LockRequest, opts ...grpc.CallOption) (Juno_LockClient, error)
+	// Release a previously acquired lock.
+	Unlock(ctx context.Context, in *UnlockRequest, opts ...grpc.CallOption) (*UnlockResponse, error)
+	// Add an item to a set.
+	AddToSet(ctx context.Context, in *AddToSetRequest, opts ...grpc.CallOption) (*AddToSetResponse, error)
 }
 
 type junoClient struct {
@@ -30,9 +34,50 @@ func NewJunoClient(cc grpc.ClientConnInterface) JunoClient {
 	return &junoClient{cc}
 }
 
-func (c *junoClient) Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error) {
-	out := new(StatusResponse)
-	err := c.cc.Invoke(ctx, "/juno.proto.v1.Juno/Status", in, out, opts...)
+func (c *junoClient) Lock(ctx context.Context, in *LockRequest, opts ...grpc.CallOption) (Juno_LockClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Juno_ServiceDesc.Streams[0], "/juno.proto.v1.Juno/Lock", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &junoLockClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Juno_LockClient interface {
+	Recv() (*LockResponse, error)
+	grpc.ClientStream
+}
+
+type junoLockClient struct {
+	grpc.ClientStream
+}
+
+func (x *junoLockClient) Recv() (*LockResponse, error) {
+	m := new(LockResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *junoClient) Unlock(ctx context.Context, in *UnlockRequest, opts ...grpc.CallOption) (*UnlockResponse, error) {
+	out := new(UnlockResponse)
+	err := c.cc.Invoke(ctx, "/juno.proto.v1.Juno/Unlock", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *junoClient) AddToSet(ctx context.Context, in *AddToSetRequest, opts ...grpc.CallOption) (*AddToSetResponse, error) {
+	out := new(AddToSetResponse)
+	err := c.cc.Invoke(ctx, "/juno.proto.v1.Juno/AddToSet", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -43,8 +88,12 @@ func (c *junoClient) Status(ctx context.Context, in *StatusRequest, opts ...grpc
 // All implementations must embed UnimplementedJunoServer
 // for forward compatibility
 type JunoServer interface {
-	// Gets information about the cluster.
-	Status(context.Context, *StatusRequest) (*StatusResponse, error)
+	// Attempt to acquire a named lock.
+	Lock(*LockRequest, Juno_LockServer) error
+	// Release a previously acquired lock.
+	Unlock(context.Context, *UnlockRequest) (*UnlockResponse, error)
+	// Add an item to a set.
+	AddToSet(context.Context, *AddToSetRequest) (*AddToSetResponse, error)
 	mustEmbedUnimplementedJunoServer()
 }
 
@@ -52,8 +101,14 @@ type JunoServer interface {
 type UnimplementedJunoServer struct {
 }
 
-func (UnimplementedJunoServer) Status(context.Context, *StatusRequest) (*StatusResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+func (UnimplementedJunoServer) Lock(*LockRequest, Juno_LockServer) error {
+	return status.Errorf(codes.Unimplemented, "method Lock not implemented")
+}
+func (UnimplementedJunoServer) Unlock(context.Context, *UnlockRequest) (*UnlockResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Unlock not implemented")
+}
+func (UnimplementedJunoServer) AddToSet(context.Context, *AddToSetRequest) (*AddToSetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddToSet not implemented")
 }
 func (UnimplementedJunoServer) mustEmbedUnimplementedJunoServer() {}
 
@@ -68,20 +123,59 @@ func RegisterJunoServer(s grpc.ServiceRegistrar, srv JunoServer) {
 	s.RegisterService(&Juno_ServiceDesc, srv)
 }
 
-func _Juno_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StatusRequest)
+func _Juno_Lock_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(LockRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(JunoServer).Lock(m, &junoLockServer{stream})
+}
+
+type Juno_LockServer interface {
+	Send(*LockResponse) error
+	grpc.ServerStream
+}
+
+type junoLockServer struct {
+	grpc.ServerStream
+}
+
+func (x *junoLockServer) Send(m *LockResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _Juno_Unlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnlockRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(JunoServer).Status(ctx, in)
+		return srv.(JunoServer).Unlock(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/juno.proto.v1.Juno/Status",
+		FullMethod: "/juno.proto.v1.Juno/Unlock",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(JunoServer).Status(ctx, req.(*StatusRequest))
+		return srv.(JunoServer).Unlock(ctx, req.(*UnlockRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Juno_AddToSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddToSetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(JunoServer).AddToSet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/juno.proto.v1.Juno/AddToSet",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(JunoServer).AddToSet(ctx, req.(*AddToSetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -94,10 +188,20 @@ var Juno_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*JunoServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Status",
-			Handler:    _Juno_Status_Handler,
+			MethodName: "Unlock",
+			Handler:    _Juno_Unlock_Handler,
+		},
+		{
+			MethodName: "AddToSet",
+			Handler:    _Juno_AddToSet_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Lock",
+			Handler:       _Juno_Lock_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "proto/v1/juno.proto",
 }
