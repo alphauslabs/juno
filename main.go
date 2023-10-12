@@ -23,6 +23,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/grpc-ecosystem/go-grpc-middleware/ratelimit"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var (
@@ -39,6 +40,31 @@ func test() {
 	}
 
 	slog.Info("n2", "i", i)
+}
+
+func testClient() {
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	opts = append(opts, grpc.WithBlock())
+	conn, err := grpc.DialContext(context.Background(), "localhost:8080", opts...)
+	if err != nil {
+		slog.Error("fail to dial:", "err", err)
+		return
+	}
+
+	defer conn.Close()
+	client := v1.NewJunoClient(conn)
+	out, err := client.AddToSet(context.Background(), &v1.AddToSetRequest{
+		Key:   "set1",
+		Value: "val1",
+	})
+
+	if err != nil {
+		slog.Error("AddToSet failed:", "err", err)
+		return
+	}
+
+	slog.Info("out:", "count", out.Count)
 }
 
 func grpcServe(ctx context.Context, network, port string, done chan error) error {
@@ -73,6 +99,11 @@ func grpcServe(ctx context.Context, network, port string, done chan error) error
 func main() {
 	flag.Parse()
 	defer glog.Flush()
+
+	if *flags.Client {
+		testClient()
+		return
+	}
 
 	// Test:
 	if *flags.Test {
