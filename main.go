@@ -91,7 +91,7 @@ func main() {
 	// Setup our group coordinator.
 	app.FleetOp = hedge.New(
 		app.Client,
-		":8081",
+		":"+*flags.FleetPort,
 		*flags.LockTable,
 		*flags.LockName,
 		*flags.LogTable,
@@ -125,7 +125,7 @@ func main() {
 
 	// Setup our gRPC management API.
 	go func() {
-		port := "8080"
+		port := *flags.GrpcPort
 		glog.Infof("serving grpc at :%v", port)
 		if err := grpcServe(ctx, "tcp", port, done); err != nil {
 			glog.Fatal(err)
