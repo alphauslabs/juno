@@ -43,10 +43,11 @@ func test() {
 }
 
 func testClient() {
+	ctx := context.Background()
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	opts = append(opts, grpc.WithBlock())
-	conn, err := grpc.DialContext(context.Background(), "localhost:8080", opts...)
+	conn, err := grpc.DialContext(ctx, "localhost:8080", opts...)
 	if err != nil {
 		slog.Error("fail to dial:", "err", err)
 		return
@@ -54,7 +55,7 @@ func testClient() {
 
 	defer conn.Close()
 	client := v1.NewJunoClient(conn)
-	out, err := client.AddToSet(context.Background(), &v1.AddToSetRequest{
+	out, err := client.AddToSet(ctx, &v1.AddToSetRequest{
 		Key:   "set1",
 		Value: "val1",
 	})
