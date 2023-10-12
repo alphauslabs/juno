@@ -9,6 +9,7 @@ import (
 
 	"github.com/alphauslabs/juno/internal"
 	"github.com/alphauslabs/juno/internal/appdata"
+	"github.com/alphauslabs/juno/internal/flags"
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
@@ -107,7 +108,7 @@ func SendToLeader(ctx context.Context, app *appdata.AppData, m []byte) ([]byte, 
 }
 
 func LeaderLiveness(ctx context.Context, app *appdata.AppData) {
-	ticker := time.NewTicker(time.Minute * 5)
+	ticker := time.NewTicker(time.Second * 3)
 	var active int32
 
 	do := func() {
@@ -119,8 +120,8 @@ func LeaderLiveness(ctx context.Context, app *appdata.AppData) {
 		}
 
 		b, _ := json.Marshal(internal.NewEvent(
-			hedge.KeyValue{},
-			"jupiter",
+			hedge.KeyValue{Value: *flags.Id},
+			EventSource,
 			CtrlBroadcastLeaderLiveness,
 		))
 

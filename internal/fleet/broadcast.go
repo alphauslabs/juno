@@ -6,6 +6,7 @@ import (
 	"unsafe"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
+	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
 )
 
@@ -49,6 +50,14 @@ func BroadcastHandler(data interface{}, msg []byte) ([]byte, error) {
 }
 
 func doBroadcastLeaderLiveness(cd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	var data hedge.KeyValue
+	err := json.Unmarshal(e.Data(), &data)
+	if err == nil && data.Value != "" {
+		cd.App.Lock()
+		cd.App.LeaderId = data.Value
+		cd.App.Unlock()
+	}
+
 	cd.App.LeaderActive.On()
 	return nil, nil
 }

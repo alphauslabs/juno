@@ -4,10 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -29,6 +30,16 @@ var (
 		return context.WithValue(p, struct{}{}, nil)
 	}
 )
+
+func test() {
+	i, err := strconv.Atoi("n2")
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
+
+	slog.Info("n2", "i", i)
+}
 
 func grpcServe(ctx context.Context, network, port string, done chan error) error {
 	l, err := net.Listen(network, ":"+port)
@@ -65,21 +76,13 @@ func main() {
 
 	// Test:
 	if *flags.Test {
-		log.Println("todo")
+		test()
 		return
 	}
 
 	app := &appdata.AppData{}
 	var err error
 	ctx, cancel := context.WithCancel(context.Background())
-
-	// For debug: log if no leader detected.
-	app.LeaderActive = timedoff.New(time.Minute*30, &timedoff.CallbackT{
-		Callback: func(args interface{}) {
-			glog.Errorf("failed: no leader for the past 30mins?")
-		},
-	})
-
 	app.Client, err = spanner.NewClient(cctx(ctx), *flags.Database)
 	if err != nil {
 		glog.Fatal(err) // essential
@@ -108,7 +111,7 @@ func main() {
 	func() {
 		var m string
 		defer func(line *string, begin time.Time) {
-			glog.Infof("%v %v", *line, time.Since(begin))
+			glog.Infof("%v, took %v", *line, time.Since(begin))
 		}(&m, time.Now())
 
 		glog.Infof("attempt leader wait...")
@@ -117,11 +120,18 @@ func main() {
 		case !ok:
 			m = fmt.Sprintf("failed: %v, no leader after", err)
 		default:
-			m = "confirm: leader active after"
+			m = "confirm leader active"
 		}
 	}()
 
 	go fleet.LeaderLiveness(cctx(ctx), app)
+
+	// For debug: log if no leader detected.
+	app.LeaderActive = timedoff.New(time.Second*5, &timedoff.CallbackT{
+		Callback: func(args interface{}) {
+			glog.Infof("no leader for the past 5s?")
+		},
+	})
 
 	// Setup our gRPC management API.
 	go func() {
