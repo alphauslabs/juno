@@ -13,8 +13,8 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/alphauslabs/juno/internal/appdata"
-	"github.com/alphauslabs/juno/internal/cluster"
 	"github.com/alphauslabs/juno/internal/flags"
+	"github.com/alphauslabs/juno/internal/fleet"
 	rl "github.com/alphauslabs/juno/internal/ratelimit"
 	v1 "github.com/alphauslabs/juno/proto/v1"
 	"github.com/flowerinthenight/hedge"
@@ -86,7 +86,7 @@ func main() {
 	}
 
 	defer app.Client.Close()
-	clusterData := cluster.ClusterData{App: app}
+	fleetData := fleet.FleetData{App: app}
 
 	// Setup our group coordinator.
 	app.FleetOp = hedge.New(
@@ -96,8 +96,8 @@ func main() {
 		*flags.LockName,
 		*flags.LogTable,
 		hedge.WithGroupSyncInterval(time.Second*10),
-		hedge.WithLeaderHandler(&clusterData, cluster.LeaderHandler),
-		hedge.WithBroadcastHandler(&clusterData, cluster.BroadcastHandler),
+		hedge.WithLeaderHandler(&fleetData, fleet.LeaderHandler),
+		hedge.WithBroadcastHandler(&fleetData, fleet.BroadcastHandler),
 	)
 
 	done := make(chan error)
@@ -112,7 +112,7 @@ func main() {
 		}(&m, time.Now())
 
 		glog.Infof("attempt leader wait...")
-		ok, err := cluster.EnsureLeaderActive(cctx(ctx), app)
+		ok, err := fleet.EnsureLeaderActive(cctx(ctx), app)
 		switch {
 		case !ok:
 			m = fmt.Sprintf("failed: %v, no leader after", err)
@@ -121,7 +121,7 @@ func main() {
 		}
 	}()
 
-	go cluster.LeaderLiveness(cctx(ctx), app)
+	go fleet.LeaderLiveness(cctx(ctx), app)
 
 	// Setup our gRPC management API.
 	go func() {

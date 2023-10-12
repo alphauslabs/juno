@@ -1,4 +1,4 @@
-package cluster
+package fleet
 
 import (
 	"encoding/json"
@@ -18,7 +18,7 @@ var (
 
 	CtrlBroadcastLeaderLiveness = "CTRL_BROADCAST_LEADER_LIVENESS"
 
-	fnBroadcast = map[string]func(*ClusterData, *cloudevents.Event) ([]byte, error){
+	fnBroadcast = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
 		CtrlBroadcastLeaderLiveness: doBroadcastLeaderLiveness,
 	}
 
@@ -33,7 +33,7 @@ var (
 )
 
 func BroadcastHandler(data interface{}, msg []byte) ([]byte, error) {
-	cd := data.(*ClusterData)
+	cd := data.(*FleetData)
 	var e cloudevents.Event
 	err := json.Unmarshal(msg, &e)
 	if err != nil {
@@ -48,7 +48,7 @@ func BroadcastHandler(data interface{}, msg []byte) ([]byte, error) {
 	return fnBroadcast[e.Type()](cd, &e)
 }
 
-func doBroadcastLeaderLiveness(cd *ClusterData, e *cloudevents.Event) ([]byte, error) {
+func doBroadcastLeaderLiveness(cd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	cd.App.LeaderActive.On()
 	return nil, nil
 }

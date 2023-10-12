@@ -1,4 +1,4 @@
-package cluster
+package fleet
 
 import (
 	"context"
@@ -15,20 +15,16 @@ import (
 	gaxv2 "github.com/googleapis/gax-go/v2"
 )
 
-type ClusterData struct {
-	App *appdata.AppData
-}
-
 var (
 	ctrlPingPong = "CTRL_PING_PONG"
 
-	fnLeader = map[string]func(*ClusterData, *cloudevents.Event) ([]byte, error){
+	fnLeader = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
 		ctrlPingPong: doLeaderPingPong,
 	}
 )
 
 func LeaderHandler(data interface{}, msg []byte) ([]byte, error) {
-	cd := data.(*ClusterData)
+	cd := data.(*FleetData)
 	var e cloudevents.Event
 	err := json.Unmarshal(msg, &e)
 	if err != nil {
@@ -43,7 +39,7 @@ func LeaderHandler(data interface{}, msg []byte) ([]byte, error) {
 	return fnLeader[e.Type()](cd, &e)
 }
 
-func doLeaderPingPong(cd *ClusterData, e *cloudevents.Event) ([]byte, error) {
+func doLeaderPingPong(cd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	switch {
 	case string(e.Data()) != "PING":
 		return nil, fmt.Errorf("invalid message")
