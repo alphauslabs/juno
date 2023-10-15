@@ -68,7 +68,7 @@ func testClient() {
 	slog.Info("out:", "count", out.Count)
 }
 
-func grpcServe(ctx context.Context, app *appdata.AppData, done chan error) error {
+func grpcServe(ctx context.Context, fd *fleet.FleetData, done chan error) error {
 	l, err := net.Listen("tcp", ":"+*flags.GrpcPort)
 	if err != nil {
 		glog.Errorf("net.Listen failed: %v", err)
@@ -85,7 +85,7 @@ func grpcServe(ctx context.Context, app *appdata.AppData, done chan error) error
 		),
 	)
 
-	svc := &service{app: app}
+	svc := &service{fd: fd}
 	v1.RegisterJunoServer(gs, svc)
 
 	go func() {
@@ -168,7 +168,7 @@ func main() {
 	// Setup our gRPC management API.
 	go func() {
 		glog.Infof("serving grpc at :%v", *flags.GrpcPort)
-		if err := grpcServe(ctx, app, done); err != nil {
+		if err := grpcServe(ctx, &fleetData, done); err != nil {
 			glog.Fatal(err)
 		}
 	}()

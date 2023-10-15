@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/alphauslabs/juno/internal/appdata"
+	"github.com/alphauslabs/juno/internal/fleet"
 	v1 "github.com/alphauslabs/juno/proto/v1"
 	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
@@ -13,7 +13,7 @@ import (
 )
 
 type service struct {
-	app *appdata.AppData
+	fd *fleet.FleetData
 
 	v1.UnimplementedJunoServer
 }
@@ -28,7 +28,7 @@ func (s *service) Unlock(ctx context.Context, in *v1.UnlockRequest) (*v1.UnlockR
 
 func (s *service) AddToSet(ctx context.Context, in *v1.AddToSetRequest) (*v1.AddToSetResponse, error) {
 	ch := make(chan hedge.BroadcastOutput)
-	go s.app.FleetOp.Broadcast(ctx, []byte("hello"), hedge.BroadcastArgs{Out: ch})
+	go s.fd.App.FleetOp.Broadcast(ctx, []byte("hello"), hedge.BroadcastArgs{Out: ch})
 	for v := range ch {
 		if v.Error != nil {
 			glog.Errorf("err=%v", v.Error)
