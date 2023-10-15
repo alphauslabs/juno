@@ -7,10 +7,8 @@ import (
 )
 
 type AppData struct {
-	Client *spanner.Client
-
-	// Our fleet orchestrator.
-	FleetOp *hedge.Op
+	Client  *spanner.Client // spanner client
+	FleetOp *hedge.Op       // our fleet orchestrator
 
 	// Our resettable timer telling us if we have a leader.
 	LeaderActive *timedoff.TimedOff
