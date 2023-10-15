@@ -5,7 +5,7 @@ go 1.21.2
 require (
 	cloud.google.com/go/spanner v1.50.0
 	github.com/cloudevents/sdk-go/v2 v2.14.0
-	github.com/flowerinthenight/hedge v1.12.0
+	github.com/flowerinthenight/hedge v1.13.0
 	github.com/flowerinthenight/timedoff v1.0.1
 	github.com/golang/glog v1.1.2
 	github.com/google/uuid v1.3.1
@@ -17,7 +17,7 @@ require (
 
 require (
 	cloud.google.com/go v0.110.8 // indirect
-	cloud.google.com/go/compute v1.23.0 // indirect
+	cloud.google.com/go/compute v1.23.1 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
@@ -59,9 +59,9 @@ require (
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.14.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
-	google.golang.org/api v0.146.0 // indirect
+	google.golang.org/api v0.147.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
-	google.golang.org/genproto v0.0.0-20231009173412-8bfb1ae86b6c // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20231009173412-8bfb1ae86b6c // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20231009173412-8bfb1ae86b6c // indirect
+	google.golang.org/genproto v0.0.0-20231012201019-e917dd12ba7a // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20231012201019-e917dd12ba7a // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20231012201019-e917dd12ba7a // indirect
 )
