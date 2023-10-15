@@ -1,17 +1,20 @@
 package appdata
 
 import (
-	"sync"
-
 	"cloud.google.com/go/spanner"
 	"github.com/flowerinthenight/hedge"
 	"github.com/flowerinthenight/timedoff"
 )
 
 type AppData struct {
-	sync.Mutex
-	Client       *spanner.Client
-	FleetOp      *hedge.Op
+	Client *spanner.Client
+
+	// Our fleet orchestrator.
+	FleetOp *hedge.Op
+
+	// Our resettable timer telling us if we have a leader.
 	LeaderActive *timedoff.TimedOff
-	LeaderId     string // valid only if `LeaderActive` is on
+
+	// The current leader's id. Zero means no leader.
+	LeaderId int64
 }

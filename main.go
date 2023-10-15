@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -112,6 +113,12 @@ func main() {
 		return
 	}
 
+	// Some checks:
+	if *flags.Id < 1 {
+		glog.Errorf("invalid id [%v]", *flags.Id)
+		return
+	}
+
 	app := &appdata.AppData{}
 	var err error
 	ctx, cancel := context.WithCancel(context.Background())
@@ -162,6 +169,7 @@ func main() {
 	app.LeaderActive = timedoff.New(time.Second*5, &timedoff.CallbackT{
 		Callback: func(args interface{}) {
 			glog.Infof("no leader for the past 5s?")
+			atomic.StoreInt64(&app.LeaderId, 0) // set no leader
 		},
 	})
 

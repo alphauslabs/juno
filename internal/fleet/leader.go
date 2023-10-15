@@ -120,7 +120,7 @@ func LeaderLiveness(ctx context.Context, app *appdata.AppData) {
 		}
 
 		b, _ := json.Marshal(internal.NewEvent(
-			hedge.KeyValue{Value: *flags.Id},
+			hedge.KeyValue{Value: fmt.Sprintf("%v", *flags.Id)},
 			EventSource,
 			CtrlBroadcastLeaderLiveness,
 		))

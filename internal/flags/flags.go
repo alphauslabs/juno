@@ -7,7 +7,7 @@ import (
 var (
 	Test      = flag.Bool("test", false, "Scratch pad, anything")
 	Client    = flag.Bool("client", false, "Run the test client code")
-	Id        = flag.String("id", "", "Node id, should be unique")
+	Id        = flag.Int("id", 0, "Node id, should be a number, unique, and greater than 0")
 	Database  = flag.String("db", "", "Spanner database, fmt: projects/{v}/instances/{v}/databases/{v}")
 	LockTable = flag.String("locktable", "juno_lock", "Spanner table for spindle lock")
 	LockName  = flag.String("lockname", "juno", "Lock name for spindle")

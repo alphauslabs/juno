@@ -3,7 +3,8 @@ package fleet
 import (
 	"encoding/json"
 	"fmt"
-	"unsafe"
+	"strconv"
+	"sync/atomic"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/flowerinthenight/hedge"
@@ -23,15 +24,6 @@ var (
 	fnBroadcast = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
 		CtrlBroadcastTest:           doBroadcastTest,
 		CtrlBroadcastLeaderLiveness: doBroadcastLeaderLiveness,
-	}
-
-	stringToBytes = func(s string) []byte {
-		return *(*[]byte)(unsafe.Pointer(
-			&struct {
-				string
-				int
-			}{s, len(s)},
-		))
 	}
 )
 
@@ -59,9 +51,8 @@ func doBroadcastLeaderLiveness(fd *FleetData, e *cloudevents.Event) ([]byte, err
 	var data hedge.KeyValue
 	err := json.Unmarshal(e.Data(), &data)
 	if err == nil && data.Value != "" {
-		fd.App.Lock()
-		fd.App.LeaderId = data.Value
-		fd.App.Unlock()
+		f, _ := strconv.ParseInt(data.Value, 10, 64)
+		atomic.StoreInt64(&fd.App.LeaderId, f)
 	}
 
 	fd.App.LeaderActive.On()
