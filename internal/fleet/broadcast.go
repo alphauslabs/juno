@@ -17,9 +17,11 @@ const (
 var (
 	ErrClusterOffline = fmt.Errorf("failed: cluster not running")
 
+	CtrlBroadcastTest           = "CTRL_BROADCAST_TEST"
 	CtrlBroadcastLeaderLiveness = "CTRL_BROADCAST_LEADER_LIVENESS"
 
 	fnBroadcast = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
+		CtrlBroadcastTest:           doBroadcastTest,
 		CtrlBroadcastLeaderLiveness: doBroadcastLeaderLiveness,
 	}
 
@@ -34,11 +36,10 @@ var (
 )
 
 func BroadcastHandler(data interface{}, msg []byte) ([]byte, error) {
-	cd := data.(*FleetData)
+	fd := data.(*FleetData)
 	var e cloudevents.Event
 	err := json.Unmarshal(msg, &e)
 	if err != nil {
-		glog.Errorf("Unmarshal failed: %v", err)
 		return nil, err
 	}
 
@@ -46,18 +47,23 @@ func BroadcastHandler(data interface{}, msg []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed: unsupported type: %v", e.Type())
 	}
 
-	return fnBroadcast[e.Type()](cd, &e)
+	return fnBroadcast[e.Type()](fd, &e)
 }
 
-func doBroadcastLeaderLiveness(cd *FleetData, e *cloudevents.Event) ([]byte, error) {
+func doBroadcastTest(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	glog.Infof("[%v] test", fd.App.FleetOp.HostPort())
+	return nil, nil
+}
+
+func doBroadcastLeaderLiveness(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	var data hedge.KeyValue
 	err := json.Unmarshal(e.Data(), &data)
 	if err == nil && data.Value != "" {
-		cd.App.Lock()
-		cd.App.LeaderId = data.Value
-		cd.App.Unlock()
+		fd.App.Lock()
+		fd.App.LeaderId = data.Value
+		fd.App.Unlock()
 	}
 
-	cd.App.LeaderActive.On()
+	fd.App.LeaderActive.On()
 	return nil, nil
 }

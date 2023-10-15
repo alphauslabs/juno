@@ -25,7 +25,7 @@ var (
 )
 
 func LeaderHandler(data interface{}, msg []byte) ([]byte, error) {
-	cd := data.(*FleetData)
+	fd := data.(*FleetData)
 	var e cloudevents.Event
 	err := json.Unmarshal(msg, &e)
 	if err != nil {
@@ -37,10 +37,10 @@ func LeaderHandler(data interface{}, msg []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed: unsupported type: %v", e.Type())
 	}
 
-	return fnLeader[e.Type()](cd, &e)
+	return fnLeader[e.Type()](fd, &e)
 }
 
-func doLeaderPingPong(cd *FleetData, e *cloudevents.Event) ([]byte, error) {
+func doLeaderPingPong(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	switch {
 	case string(e.Data()) != "PING":
 		return nil, fmt.Errorf("invalid message")

@@ -53,8 +53,8 @@ github.com/envoyproxy/go-control-plane v0.11.1/go.mod h1:uhMcXKCQMEJHiAb0w+YGefQ
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
 github.com/envoyproxy/protoc-gen-validate v1.0.2 h1:QkIBuU5k+x7/QXPvPPnWXWlCdaBFApVqftFV6k087DA=
 github.com/envoyproxy/protoc-gen-validate v1.0.2/go.mod h1:GpiZQP3dDbg4JouG/NNS7QWXpgx6x8QiMKdmN72jogE=
-github.com/flowerinthenight/hedge v1.13.0 h1:DQ47Mh7qv7YwHKvde7lLn7Vk6CkJNu9yYbRJYask6UQ=
-github.com/flowerinthenight/hedge v1.13.0/go.mod h1:CiuT1vM1FZyNQFnWEgAsD202EPBu/rTacpisPOb6Y7I=
+github.com/flowerinthenight/hedge v1.13.1 h1:oqUIMllgOa9m4lapeDFs8FuTtigdYV9E1zwTydlLFrg=
+github.com/flowerinthenight/hedge v1.13.1/go.mod h1:CiuT1vM1FZyNQFnWEgAsD202EPBu/rTacpisPOb6Y7I=
 github.com/flowerinthenight/spindle v1.2.1 h1:BMZh1EhE+pRJQyLxTplZiYEmZiwsob3miVOCG8n0ueA=
 github.com/flowerinthenight/spindle v1.2.1/go.mod h1:H5UOJjrE45n+Vn4FtG7RRqh9HhGnC0YMsu+JA8VQVXU=
 github.com/flowerinthenight/timedoff v1.0.1 h1:/4NgHGeMjyCcjbKjRbAMEf0ZDWQUl1Rs5Fhbhvcay1U=
