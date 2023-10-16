@@ -17,12 +17,12 @@ import (
 )
 
 var (
-	CtrlLeaderPingPong    = "CTRL_PING_PONG"
-	CtrlLeaderFwdAddToSet = "CTRL_LEADER_FWD_ADDTOSET"
+	CtrlLeaderPingPong = "CTRL_PING_PONG"
+	CtrlLeaderFwdPaxos = "CTRL_LEADER_FWD_PAXOS"
 
 	fnLeader = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
-		CtrlLeaderPingPong:    doLeaderPingPong,
-		CtrlLeaderFwdAddToSet: doLeaderFwdAddToSet,
+		CtrlLeaderPingPong: doLeaderPingPong,
+		CtrlLeaderFwdPaxos: doLeaderFwdPaxos,
 	}
 )
 
@@ -51,7 +51,7 @@ func doLeaderPingPong(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	}
 }
 
-func doLeaderFwdAddToSet(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+func doLeaderFwdPaxos(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	var data StartPaxosInput
 	err := json.Unmarshal(e.Data(), &data)
 	if err != nil {

@@ -66,7 +66,7 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 				Value: req.Value,
 			},
 			fleet.EventSource,
-			fleet.CtrlLeaderFwdAddToSet,
+			fleet.CtrlLeaderFwdPaxos,
 		))
 
 		outb, err := fleet.SendToLeader(ctx, s.fd.App, b)
