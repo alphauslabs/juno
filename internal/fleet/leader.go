@@ -59,12 +59,8 @@ func doLeaderFwdPaxos(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	}
 
 	ctx := context.Background()
-	out, err := StartPaxos(ctx, &StartPaxosInput{
-		FleetData: fd,
-		Key:       data.Key,
-		Value:     data.Value,
-	})
-
+	data.FleetData = fd
+	out, err := StartPaxos(ctx, &data)
 	outb, _ := json.Marshal(out)
 	return outb, err
 }

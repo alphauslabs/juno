@@ -53,6 +53,7 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 	case fleet.IsLeader(s.fd):
 		out, err := fleet.StartPaxos(ctx, &fleet.StartPaxosInput{
 			FleetData: s.fd,
+			CmdType:   fleet.CmdTypeAddToSet,
 			Key:       req.Key,
 			Value:     req.Value,
 		})
@@ -62,8 +63,9 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 	default:
 		b, _ := json.Marshal(internal.NewEvent(
 			fleet.StartPaxosInput{
-				Key:   req.Key,
-				Value: req.Value,
+				CmdType: fleet.CmdTypeAddToSet,
+				Key:     req.Key,
+				Value:   req.Value,
 			},
 			fleet.EventSource,
 			fleet.CtrlLeaderFwdPaxos,

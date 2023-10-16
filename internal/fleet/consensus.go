@@ -15,6 +15,10 @@ import (
 	"github.com/golang/glog"
 )
 
+var (
+	CmdTypeAddToSet = "CMDTYPE_ADDTOSET"
+)
+
 type FleetData struct {
 	App *appdata.AppData
 }
@@ -190,6 +194,7 @@ func writeNodeMeta(ctx context.Context, in *writeNoteMetaInput) error {
 
 type StartPaxosInput struct {
 	FleetData *FleetData `json:"fd,omitempty"`
+	CmdType   string     `json:"cmdType,omitempty"`
 	Key       string     `json:"key,omitempty"`
 	Value     string     `json:"value,omitempty"`
 }
@@ -235,6 +240,14 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, err
 		}
 	}()
 
+	var value string
+	switch in.CmdType {
+	case CmdTypeAddToSet:
+		value = fmt.Sprintf("+%v %v", in.Key, in.Value) // addtoset fmt: <+key value>
+	default:
+		return StartPaxosOutput{}, fmt.Errorf("Unsupported command [%v].", in.CmdType)
+	}
+
 	// Multi-Paxos: skip prepare, proceed directly to accept phase.
 	ch := make(chan hedge.BroadcastOutput)
 	b, _ := json.Marshal(internal.NewEvent(
@@ -242,7 +255,7 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, err
 			RoundNum: round + 1,
 			AcceptId: 0,
 			NodeId:   int64(*flags.Id),
-			Value:    fmt.Sprintf("+%v %v", in.Key, in.Value), // addtoset fmt: <+key value>
+			Value:    value,
 		},
 		EventSource,
 		CtrlBroadcastPaxosPhase2Accept,
