@@ -205,13 +205,12 @@ type StartPaxosOutput struct {
 	Count int    `json:"count,omitempty"`
 }
 
-func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, error) {
-	var out StartPaxosOutput
+func StartPaxos(ctx context.Context, in *StartPaxosInput) (*StartPaxosOutput, error) {
 	round, committed, err := getLastPaxosRound(ctx, in.FleetData)
 	glog.Infof("round=%v, committed=%v, err=%v", round, committed, err)
 
 	if !committed {
-		return out, fmt.Errorf("Operation pending. Please try again later.")
+		return nil, fmt.Errorf("Operation pending. Please try again later.")
 	}
 
 	err = writeMeta(ctx, writeMetaInput{
@@ -224,7 +223,7 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, err
 	})
 
 	if err != nil {
-		return out, err
+		return nil, err
 	}
 
 	defer func() {
@@ -246,7 +245,7 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, err
 	case CmdTypeAddToSet:
 		value = fmt.Sprintf("+%v %v", in.Key, in.Value) // addtoset fmt: <+key value>
 	default:
-		return out, fmt.Errorf("Unsupported command [%v].", in.CmdType)
+		return nil, fmt.Errorf("Unsupported command [%v].", in.CmdType)
 	}
 
 	// Multi-Paxos: skip prepare, proceed directly to accept phase.
@@ -312,8 +311,8 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, err
 
 	got := <-done
 	if got < majority {
-		return out, fmt.Errorf("Quorum not reached.")
+		return nil, fmt.Errorf("Quorum not reached.")
 	}
 
-	return out, nil
+	return &StartPaxosOutput{}, nil
 }
