@@ -55,6 +55,9 @@ func doBroadcastLeaderLiveness(fd *FleetData, e *cloudevents.Event) ([]byte, err
 		atomic.StoreInt64(&fd.App.LeaderId, f)
 	}
 
-	fd.App.LeaderActive.On()
+	if fd.App.LeaderActive != nil {
+		fd.App.LeaderActive.On()
+	}
+
 	return nil, nil
 }

@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/spanner v1.50.0
 	github.com/cloudevents/sdk-go/v2 v2.14.0
 	github.com/flowerinthenight/hedge v1.13.1
-	github.com/flowerinthenight/timedoff v1.0.1
+	github.com/flowerinthenight/timedoff v1.0.2
 	github.com/golang/glog v1.1.2
 	github.com/google/uuid v1.3.1
 	github.com/googleapis/gax-go/v2 v2.12.0

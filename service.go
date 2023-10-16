@@ -9,6 +9,7 @@ import (
 	v1 "github.com/alphauslabs/juno/proto/v1"
 	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
+	gaxv2 "github.com/googleapis/gax-go/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -28,6 +29,32 @@ func (s *service) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.Unlock
 
 func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.AddToSetResponse, error) {
 	defer func(begin time.Time) { glog.Infof("method AddToSet took %v", time.Since(begin)) }(time.Now())
+
+	var attempts int
+	bo := gaxv2.Backoff{Max: time.Minute}
+	for {
+		if !fleet.NoLeader(s.fd) {
+			break
+		} else {
+			attempts++
+			if attempts >= 10 {
+				return nil, status.Errorf(codes.Unavailable, "Leader unavailable. Please try again later.")
+			}
+
+			time.Sleep(bo.Pause())
+			continue
+		}
+	}
+
+	round, err := fleet.GetLastPaxosRound(ctx, s.fd)
+	glog.Infof("round=%v, err=%v", round, err)
+
+	if fleet.IsLeader(s.fd) {
+		glog.Infof("[%v] iam leader", s.fd.App.FleetOp.HostPort())
+	} else {
+		glog.Infof("[%v] not leader", s.fd.App.FleetOp.HostPort())
+	}
+
 	ch := make(chan hedge.BroadcastOutput)
 	go s.fd.App.FleetOp.Broadcast(ctx, []byte("hello"), hedge.BroadcastArgs{Out: ch})
 	for v := range ch {

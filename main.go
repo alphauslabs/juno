@@ -48,7 +48,7 @@ func testClient() {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	opts = append(opts, grpc.WithBlock())
-	conn, err := grpc.DialContext(ctx, "localhost:8080", opts...)
+	conn, err := grpc.DialContext(ctx, "localhost:"+*flags.Client, opts...)
 	if err != nil {
 		slog.Error("fail to dial:", "err", err)
 		return
@@ -102,7 +102,7 @@ func main() {
 	flag.Parse()
 	defer glog.Flush()
 
-	if *flags.Client {
+	if *flags.Client != "" {
 		testClient()
 		return
 	}
@@ -113,7 +113,6 @@ func main() {
 		return
 	}
 
-	// Some checks:
 	if *flags.Id < 1 {
 		glog.Errorf("invalid id [%v]", *flags.Id)
 		return
@@ -136,7 +135,7 @@ func main() {
 		":"+*flags.FleetPort,
 		*flags.LockTable,
 		*flags.LockName,
-		*flags.LogTable,
+		"", // not using hedge's logtable
 		hedge.WithGroupSyncInterval(time.Second*10),
 		hedge.WithLeaderHandler(&fleetData, fleet.LeaderHandler),
 		hedge.WithBroadcastHandler(&fleetData, fleet.BroadcastHandler),

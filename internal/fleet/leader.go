@@ -148,3 +148,7 @@ func LeaderLiveness(ctx context.Context, app *appdata.AppData) {
 		go do()
 	}
 }
+
+func NoLeader(fd *FleetData) bool { return atomic.LoadInt64(&fd.App.LeaderId) < 1 }
+
+func IsLeader(fd *FleetData) bool { return atomic.LoadInt64(&fd.App.LeaderId) == int64(*flags.Id) }

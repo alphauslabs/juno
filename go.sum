@@ -57,8 +57,8 @@ github.com/flowerinthenight/hedge v1.13.1 h1:oqUIMllgOa9m4lapeDFs8FuTtigdYV9E1zw
 github.com/flowerinthenight/hedge v1.13.1/go.mod h1:CiuT1vM1FZyNQFnWEgAsD202EPBu/rTacpisPOb6Y7I=
 github.com/flowerinthenight/spindle v1.2.1 h1:BMZh1EhE+pRJQyLxTplZiYEmZiwsob3miVOCG8n0ueA=
 github.com/flowerinthenight/spindle v1.2.1/go.mod h1:H5UOJjrE45n+Vn4FtG7RRqh9HhGnC0YMsu+JA8VQVXU=
-github.com/flowerinthenight/timedoff v1.0.1 h1:/4NgHGeMjyCcjbKjRbAMEf0ZDWQUl1Rs5Fhbhvcay1U=
-github.com/flowerinthenight/timedoff v1.0.1/go.mod h1:a7EUgScGce6pRkuUoIiXIFdkOyVYHOVnLJaqgiNiJ88=
+github.com/flowerinthenight/timedoff v1.0.2 h1:DVy87s1xVDOU/0J9Up6T8HufeHUrggGiXcMycOwN4ys=
+github.com/flowerinthenight/timedoff v1.0.2/go.mod h1:6fDTLfzZYfdj9ipdXd6jrZfOV7KWQeiCfxCnCvu7j+k=
 github.com/go-kit/kit v0.8.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-kit/kit v0.9.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-kit/log v0.1.0/go.mod h1:zbhenjAZHb184qTLMA9ZjW7ThYL0H2mk7Q6pNt4vbaY=
