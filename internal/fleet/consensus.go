@@ -68,7 +68,8 @@ type roundT struct {
 func getLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) {
 	var q strings.Builder
 	fmt.Fprintf(&q, "select round, updated, committed from %s ", *flags.Meta)
-	fmt.Fprintf(&q, "where id = 'chain' and ((updated = committed) or (updated is not null and committed is null)) ")
+	fmt.Fprintf(&q, "where id = 'chain' and ")
+	fmt.Fprintf(&q, "((updated = committed) or (updated is not null and committed is null)) ")
 	fmt.Fprintf(&q, "order by round desc limit 1")
 	in := &internal.QuerySpannerSingleInput{
 		Client: fd.App.Client,
