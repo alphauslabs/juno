@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/alphauslabs/juno/internal"
@@ -43,14 +44,13 @@ type Accepted struct {
 	NodeId   int64 `json:"nodeId"` // tie-breaker
 }
 
-func GetLastPaxosRound(ctx context.Context, fd *FleetData) (int64, error) {
+// GetLastPaxosRound returns the last/current paxos round, and an indication if
+// the round is already committed (false = still ongoing).
+func GetLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) {
 	var q strings.Builder
 	fmt.Fprintf(&q, "select round, updated, committed from %s ", *flags.Meta)
 	fmt.Fprintf(&q, "where id = 'chain' and ((updated = committed) or (updated is not null and committed is null)) ")
 	fmt.Fprintf(&q, "order by round desc limit 1")
-
-	glog.Infof("query=[%v]", q.String())
-
 	in := &internal.QuerySpannerSingleInput{
 		Client: fd.App.Client,
 		Query:  q.String(),
@@ -64,19 +64,21 @@ func GetLastPaxosRound(ctx context.Context, fd *FleetData) (int64, error) {
 
 	rows, err := internal.QuerySpannerSingle(ctx, in)
 	if err != nil {
-		return 0, err
+		return 0, true, err
 	}
 
-	for _, row := range rows { // should only be 1 record
+	for _, row := range rows {
 		var v roundT
 		err = row.ToStruct(&v)
 		if err != nil {
-			return 0, err
+			return 0, true, err
 		}
 
-		glog.Infof("meta: round=%v, updated=%v, committed=%v", v.Round.Int64, v.Updated.Time, v.Committed.Time)
-		return v.Round.Int64, nil
+		glog.Infof("meta: round=%v, updated=%v, committed=%v",
+			v.Round.Int64, v.Updated.Time.Format(time.RFC3339), v.Committed.Time.Format(time.RFC3339))
+
+		return v.Round.Int64, !v.Committed.IsNull(), nil
 	}
 
-	return 0, nil
+	return 0, true, nil
 }

@@ -46,8 +46,8 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 		}
 	}
 
-	round, err := fleet.GetLastPaxosRound(ctx, s.fd)
-	glog.Infof("round=%v, err=%v", round, err)
+	round, ok, err := fleet.GetLastPaxosRound(ctx, s.fd)
+	glog.Infof("round=%v, committed=%v, err=%v", round, ok, err)
 
 	if fleet.IsLeader(s.fd) {
 		glog.Infof("[%v] iam leader", s.fd.App.FleetOp.HostPort())
