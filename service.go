@@ -34,7 +34,7 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 	glog.Infof("request=%v", string(reqb))
 
 	var attempts int
-	bo := gaxv2.Backoff{Max: time.Minute}
+	bo := gaxv2.Backoff{} // 30s
 	for {
 		if !fleet.NoLeader(s.fd) {
 			break
@@ -58,8 +58,13 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 			Value:     req.Value,
 		})
 
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+
 		outb, _ := json.Marshal(out)
-		glog.Infof("direct: out=%v, err=%v", string(outb), err)
+		glog.Infof("direct: out=%v", string(outb))
+		return &v1.AddToSetResponse{Key: out.Key, Count: int64(out.Count)}, nil
 	default:
 		b, _ := json.Marshal(internal.NewEvent(
 			fleet.StartPaxosInput{
@@ -72,8 +77,17 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 		))
 
 		outb, err := fleet.SendToLeader(ctx, s.fd.App, b)
-		glog.Infof("fwd: out=%v, err=%v", string(outb), err)
-	}
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
 
-	return &v1.AddToSetResponse{}, nil
+		glog.Infof("fwd: out=%v", string(outb))
+		var out fleet.StartPaxosOutput
+		err = json.Unmarshal(outb, &out)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+
+		return &v1.AddToSetResponse{Key: out.Key, Count: int64(out.Count)}, nil
+	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -66,7 +67,8 @@ func testClient() {
 		return
 	}
 
-	slog.Info("out:", "count", out.Count)
+	outb, _ := json.Marshal(out)
+	slog.Info("out:", "val", string(outb))
 }
 
 func grpcServe(ctx context.Context, fd *fleet.FleetData, done chan error) error {

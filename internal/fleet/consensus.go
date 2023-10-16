@@ -315,5 +315,5 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (*StartPaxosOutput, er
 		return nil, fmt.Errorf("Quorum not reached.")
 	}
 
-	return &StartPaxosOutput{}, nil
+	return &StartPaxosOutput{Key: in.Key, Value: in.Value}, nil
 }
