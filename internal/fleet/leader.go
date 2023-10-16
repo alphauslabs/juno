@@ -104,7 +104,8 @@ func SendToLeader(ctx context.Context, app *appdata.AppData, m []byte) ([]byte, 
 			}
 		}
 
-		for i := 0; i < 10; i++ {
+		bo = gaxv2.Backoff{Max: time.Second * 10}
+		for i := 0; i < 3; i++ {
 			var r []byte
 			r, err = app.FleetOp.Send(ctx, m)
 			if err != nil {
