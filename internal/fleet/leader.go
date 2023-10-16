@@ -17,12 +17,12 @@ import (
 )
 
 var (
-	CtrlLeaderPingPong = "CTRL_PING_PONG"
-	CtrlLeaderFwdPaxos = "CTRL_LEADER_FWD_PAXOS"
+	CtrlLeaderPingPong     = "CTRL_PING_PONG"
+	CtrlLeaderFwdConsensus = "CTRL_LEADER_FWD_CONSENSUS"
 
 	fnLeader = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
-		CtrlLeaderPingPong: doLeaderPingPong,
-		CtrlLeaderFwdPaxos: doLeaderFwdPaxos,
+		CtrlLeaderPingPong:     doLeaderPingPong,
+		CtrlLeaderFwdConsensus: doLeaderFwdConsensus,
 	}
 )
 
@@ -51,8 +51,8 @@ func doLeaderPingPong(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	}
 }
 
-func doLeaderFwdPaxos(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
-	var data StartPaxosInput
+func doLeaderFwdConsensus(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	var data ReachConsensusInput
 	err := json.Unmarshal(e.Data(), &data)
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func doLeaderFwdPaxos(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 
 	ctx := context.Background()
 	data.FleetData = fd
-	out, err := StartPaxos(ctx, &data)
+	out, err := ReachConsensus(ctx, &data)
 	outb, _ := json.Marshal(out)
 	return outb, err
 }

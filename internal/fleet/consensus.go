@@ -63,7 +63,7 @@ type roundT struct {
 	Committed spanner.NullTime
 }
 
-// GetLastPaxosRound returns the last/current paxos round, and an indication if
+// getLastPaxosRound returns the last/current paxos round, and an indication if
 // the round is already committed (false = still ongoing).
 func getLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) {
 	var q strings.Builder
@@ -193,20 +193,22 @@ func writeNodeMeta(ctx context.Context, in *writeNoteMetaInput) error {
 	return nil
 }
 
-type StartPaxosInput struct {
+type ReachConsensusInput struct {
 	FleetData *FleetData `json:"fd,omitempty"`
 	CmdType   string     `json:"cmdType,omitempty"`
 	Key       string     `json:"key,omitempty"`
 	Value     string     `json:"value,omitempty"`
 }
 
-type StartPaxosOutput struct {
+type ReachConsensusOutput struct {
 	Key   string `json:"key,omitempty"`
 	Value string `json:"value,omitempty"`
 	Count int    `json:"count,omitempty"`
 }
 
-func StartPaxos(ctx context.Context, in *StartPaxosInput) (*StartPaxosOutput, error) {
+// ReachConsensus is our generic function to reach consensus on a value across a quorum of
+// nodes using the multi-paxos algorithm variant.
+func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsensusOutput, error) {
 	round, committed, err := getLastPaxosRound(ctx, in.FleetData)
 	glog.Infof("round=%v, committed=%v, err=%v", round, committed, err)
 
@@ -315,5 +317,5 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (*StartPaxosOutput, er
 		return nil, fmt.Errorf("Quorum not reached.")
 	}
 
-	return &StartPaxosOutput{Key: in.Key, Value: in.Value}, nil
+	return &ReachConsensusOutput{Key: in.Key, Value: in.Value}, nil
 }

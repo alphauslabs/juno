@@ -51,7 +51,7 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 
 	switch {
 	case fleet.IsLeader(s.fd):
-		out, err := fleet.StartPaxos(ctx, &fleet.StartPaxosInput{
+		out, err := fleet.ReachConsensus(ctx, &fleet.ReachConsensusInput{
 			FleetData: s.fd,
 			CmdType:   fleet.CmdTypeAddToSet,
 			Key:       req.Key,
@@ -67,13 +67,13 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 		return &v1.AddToSetResponse{Key: out.Key, Count: int64(out.Count)}, nil
 	default:
 		b, _ := json.Marshal(internal.NewEvent(
-			fleet.StartPaxosInput{
+			fleet.ReachConsensusInput{
 				CmdType: fleet.CmdTypeAddToSet,
 				Key:     req.Key,
 				Value:   req.Value,
 			},
 			fleet.EventSource,
-			fleet.CtrlLeaderFwdPaxos,
+			fleet.CtrlLeaderFwdConsensus,
 		))
 
 		outb, err := fleet.SendToLeader(ctx, s.fd.App, b)
@@ -82,7 +82,7 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 		}
 
 		glog.Infof("fwd: out=%v", string(outb))
-		var out fleet.StartPaxosOutput
+		var out fleet.ReachConsensusOutput
 		err = json.Unmarshal(outb, &out)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, err.Error())
