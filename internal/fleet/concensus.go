@@ -235,7 +235,7 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, err
 		}
 	}()
 
-	// Try multi-paxos concensus here.
+	// Multi-Paxos: skip prepare, proceed directly to accept phase.
 	ch := make(chan hedge.BroadcastOutput)
 	b, _ := json.Marshal(internal.NewEvent(
 		Accept{
@@ -249,13 +249,56 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, err
 	))
 
 	go in.FleetData.App.FleetOp.Broadcast(ctx, b, hedge.BroadcastArgs{Out: ch})
-	for v := range ch {
-		if v.Error != nil {
-			glog.Errorf("err=%v", v.Error)
-		} else {
-			b, _ := json.Marshal(v)
-			glog.Infof("out=%v", string(b))
+
+	chIn := make(chan *hedge.BroadcastOutput, *flags.NodeCount+1) // include exit msg
+	majority := (*flags.NodeCount / 2) + 1
+	done := make(chan int, 1)
+
+	// NOTE: We only need the majority of the fleet's votes.
+	go func() {
+		var got int
+		defer func(n *int) { done <- *n }(&got)
+
+		for {
+			m := <-chIn
+			if m == nil {
+				return
+			}
+
+			if m.Error != nil {
+				continue // skip failures
+			}
+
+			glog.Infof("reply=%v", string(m.Reply))
+			var accept Accepted
+			err := json.Unmarshal(m.Reply, &accept)
+			if err != nil {
+				glog.Errorf("Unmarshal failed: %v", err)
+				continue
+			}
+
+			if accept.Error == nil { // accepted
+				got++
+			}
+
+			glog.Infof("got=%v, majority=%v", got, majority)
+			if got >= majority { // quorum
+				return
+			}
 		}
+	}()
+
+	// NOTE: Function could exit even if this goroutine hasn't finished yet.
+	go func() {
+		defer func() { chIn <- nil }() // for exit if no quorum
+		for v := range ch {
+			chIn <- &v
+		}
+	}()
+
+	got := <-done
+	if got < majority {
+		return StartPaxosOutput{}, fmt.Errorf("Quorum not reached.")
 	}
 
 	return StartPaxosOutput{}, nil
