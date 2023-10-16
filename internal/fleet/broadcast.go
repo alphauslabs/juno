@@ -18,12 +18,16 @@ const (
 var (
 	ErrClusterOffline = fmt.Errorf("failed: cluster not running")
 
-	CtrlBroadcastTest           = "CTRL_BROADCAST_TEST"
-	CtrlBroadcastLeaderLiveness = "CTRL_BROADCAST_LEADER_LIVENESS"
+	CtrlBroadcastTest               = "CTRL_BROADCAST_TEST"
+	CtrlBroadcastLeaderLiveness     = "CTRL_BROADCAST_LEADER_LIVENESS"
+	CtrlBroadcastPaxosPhase1Prepare = "CTRL_BROADCAST_PAXOS_PHASE1_PREPARE"
+	CtrlBroadcastPaxosPhase2Accept  = "CTRL_BROADCAST_PAXOS_PHASE2_ACCEPT"
 
 	fnBroadcast = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
-		CtrlBroadcastTest:           doBroadcastTest,
-		CtrlBroadcastLeaderLiveness: doBroadcastLeaderLiveness,
+		CtrlBroadcastTest:               doBroadcastTest,
+		CtrlBroadcastLeaderLiveness:     doBroadcastLeaderLiveness,
+		CtrlBroadcastPaxosPhase1Prepare: doBroadcastPaxosPhase1Prepare,
+		CtrlBroadcastPaxosPhase2Accept:  doBroadcastPaxosPhase2Accept,
 	}
 )
 
@@ -59,5 +63,13 @@ func doBroadcastLeaderLiveness(fd *FleetData, e *cloudevents.Event) ([]byte, err
 		fd.App.LeaderActive.On()
 	}
 
+	return nil, nil
+}
+
+func doBroadcastPaxosPhase1Prepare(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	return nil, nil
+}
+
+func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	return nil, nil
 }

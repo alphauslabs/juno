@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/alphauslabs/juno/internal"
 	"github.com/alphauslabs/juno/internal/flags"
+	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
 )
 
@@ -32,6 +34,7 @@ type Promise struct {
 
 // Phase 2a:
 type Accept struct {
+	RoundNum int64  `json:"roundNum"` // multipaxos round number
 	AcceptId int64  `json:"acceptId"`
 	NodeId   int64  `json:"nodeId"` // tie-breaker
 	Value    string `json:"value"`
@@ -39,9 +42,16 @@ type Accept struct {
 
 // Phase 2b:
 type Accepted struct {
-	Error    error `json:"error"` // non-nil = NACK
+	Error    error `json:"error"`    // non-nil = NACK
+	RoundNum int64 `json:"roundNum"` // multipaxos round number
 	AcceptId int64 `json:"acceptId"`
 	NodeId   int64 `json:"nodeId"` // tie-breaker
+}
+
+type roundT struct {
+	Round     spanner.NullInt64
+	Updated   spanner.NullTime
+	Committed spanner.NullTime
 }
 
 // GetLastPaxosRound returns the last/current paxos round, and an indication if
@@ -54,12 +64,6 @@ func GetLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) 
 	in := &internal.QuerySpannerSingleInput{
 		Client: fd.App.Client,
 		Query:  q.String(),
-	}
-
-	type roundT struct {
-		Round     spanner.NullInt64
-		Updated   spanner.NullTime
-		Committed spanner.NullTime
 	}
 
 	rows, err := internal.QuerySpannerSingle(ctx, in)
@@ -81,4 +85,49 @@ func GetLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) 
 	}
 
 	return 0, true, nil
+}
+
+type StartPaxosInput struct {
+	FleetData *FleetData `json:"fd,omitempty"`
+	Key       string     `json:"key,omitempty"`
+	Value     string     `json:"value,omitempty"`
+}
+
+type StartPaxosOutput struct {
+	Key   string `json:"key,omitempty"`
+	Value string `json:"value,omitempty"`
+	Count int    `json:"count,omitempty"`
+}
+
+func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, error) {
+	round, committed, err := GetLastPaxosRound(ctx, in.FleetData)
+	glog.Infof("round=%v, committed=%v, err=%v", round, committed, err)
+
+	if !committed {
+		return StartPaxosOutput{}, fmt.Errorf("Operation pending. Please try again later.")
+	}
+
+	// Try multi-paxos concensus here.
+	ch := make(chan hedge.BroadcastOutput)
+	b, _ := json.Marshal(internal.NewEvent(
+		Accept{
+			RoundNum: round + 1,
+			AcceptId: 0,
+			NodeId:   int64(*flags.Id),
+		},
+		EventSource,
+		CtrlBroadcastPaxosPhase2Accept,
+	))
+
+	go in.FleetData.App.FleetOp.Broadcast(ctx, b, hedge.BroadcastArgs{Out: ch})
+	for v := range ch {
+		if v.Error != nil {
+			glog.Errorf("err=%v", v.Error)
+		} else {
+			b, _ := json.Marshal(v)
+			glog.Infof("out=%v", string(b))
+		}
+	}
+
+	return StartPaxosOutput{}, nil
 }

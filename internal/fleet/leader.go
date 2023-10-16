@@ -17,10 +17,12 @@ import (
 )
 
 var (
-	ctrlPingPong = "CTRL_PING_PONG"
+	CtrlLeaderPingPong    = "CTRL_PING_PONG"
+	CtrlLeaderFwdAddToSet = "CTRL_LEADER_FWD_ADDTOSET"
 
 	fnLeader = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
-		ctrlPingPong: doLeaderPingPong,
+		CtrlLeaderPingPong:    doLeaderPingPong,
+		CtrlLeaderFwdAddToSet: doLeaderFwdAddToSet,
 	}
 )
 
@@ -49,8 +51,26 @@ func doLeaderPingPong(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	}
 }
 
+func doLeaderFwdAddToSet(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	var data StartPaxosInput
+	err := json.Unmarshal(e.Data(), &data)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := context.Background()
+	out, err := StartPaxos(ctx, &StartPaxosInput{
+		FleetData: fd,
+		Key:       data.Key,
+		Value:     data.Value,
+	})
+
+	outb, _ := json.Marshal(out)
+	return outb, err
+}
+
 func EnsureLeaderActive(ctx context.Context, app *appdata.AppData) (bool, error) {
-	msg := internal.NewEvent([]byte("PING"), "jupiter", ctrlPingPong)
+	msg := internal.NewEvent([]byte("PING"), "jupiter", CtrlLeaderPingPong)
 	b, _ := json.Marshal(msg)
 	r, err := SendToLeader(ctx, app, b)
 	if err != nil {

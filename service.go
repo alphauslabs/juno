@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/alphauslabs/juno/internal"
 	"github.com/alphauslabs/juno/internal/fleet"
 	v1 "github.com/alphauslabs/juno/proto/v1"
-	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
 	gaxv2 "github.com/googleapis/gax-go/v2"
 	"google.golang.org/grpc/codes"
@@ -46,24 +46,28 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 		}
 	}
 
-	round, ok, err := fleet.GetLastPaxosRound(ctx, s.fd)
-	glog.Infof("round=%v, committed=%v, err=%v", round, ok, err)
+	switch {
+	case fleet.IsLeader(s.fd):
+		out, err := fleet.StartPaxos(ctx, &fleet.StartPaxosInput{
+			FleetData: s.fd,
+			Key:       req.Key,
+			Value:     req.Value,
+		})
 
-	if fleet.IsLeader(s.fd) {
-		glog.Infof("[%v] iam leader", s.fd.App.FleetOp.HostPort())
-	} else {
-		glog.Infof("[%v] not leader", s.fd.App.FleetOp.HostPort())
-	}
+		outb, _ := json.Marshal(out)
+		glog.Infof("direct: out=%v, err=%v", string(outb), err)
+	default:
+		b, _ := json.Marshal(internal.NewEvent(
+			fleet.StartPaxosInput{
+				Key:   req.Key,
+				Value: req.Value,
+			},
+			fleet.EventSource,
+			fleet.CtrlLeaderFwdAddToSet,
+		))
 
-	ch := make(chan hedge.BroadcastOutput)
-	go s.fd.App.FleetOp.Broadcast(ctx, []byte("hello"), hedge.BroadcastArgs{Out: ch})
-	for v := range ch {
-		if v.Error != nil {
-			glog.Errorf("err=%v", v.Error)
-		} else {
-			b, _ := json.Marshal(v)
-			glog.Infof("out=%v", string(b))
-		}
+		outb, err := fleet.SendToLeader(ctx, s.fd.App, b)
+		glog.Infof("fwd: out=%v, err=%v", string(outb), err)
 	}
 
 	return &v1.AddToSetResponse{}, nil
