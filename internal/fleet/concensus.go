@@ -9,10 +9,15 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/alphauslabs/juno/internal"
+	"github.com/alphauslabs/juno/internal/appdata"
 	"github.com/alphauslabs/juno/internal/flags"
 	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
 )
+
+type FleetData struct {
+	App *appdata.AppData
+}
 
 // Phase 1a:
 type Prepare struct {
@@ -56,7 +61,7 @@ type roundT struct {
 
 // GetLastPaxosRound returns the last/current paxos round, and an indication if
 // the round is already committed (false = still ongoing).
-func GetLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) {
+func getLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) {
 	var q strings.Builder
 	fmt.Fprintf(&q, "select round, updated, committed from %s ", *flags.Meta)
 	fmt.Fprintf(&q, "where id = 'chain' and ((updated = committed) or (updated is not null and committed is null)) ")
@@ -87,6 +92,102 @@ func GetLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) 
 	return 0, true, nil
 }
 
+type metaT struct {
+	Id    string
+	Round int64
+	Value string
+}
+
+type writeMetaInput struct {
+	FleetData *FleetData
+	Meta      metaT
+}
+
+func writeMeta(ctx context.Context, in writeMetaInput) error {
+	_, err := in.FleetData.App.Client.Apply(ctx, []*spanner.Mutation{
+		spanner.InsertOrUpdate(*flags.Meta,
+			[]string{"id", "round", "value", "updated"},
+			[]interface{}{in.Meta.Id, in.Meta.Round, in.Meta.Value, spanner.CommitTimestamp},
+		),
+	})
+
+	return err
+}
+
+func commitMeta(ctx context.Context, in writeMetaInput) error {
+	_, err := in.FleetData.App.Client.ReadWriteTransaction(ctx,
+		func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+			var q strings.Builder
+			fmt.Fprintf(&q, "update %s ", *flags.Meta)
+			fmt.Fprintf(&q, "set committed = (select updated from %s ", *flags.Meta)
+			fmt.Fprintf(&q, "where id = @id and round = @round) ")
+			fmt.Fprintf(&q, "where id = @id and round = @round")
+
+			stmt := spanner.Statement{
+				SQL:    q.String(),
+				Params: map[string]interface{}{"id": in.Meta.Id, "round": in.Meta.Round},
+			}
+
+			_, err := txn.Update(ctx, stmt)
+			return err
+		},
+	)
+
+	return err
+}
+
+type writeNoteMetaInput struct {
+	FleetData *FleetData
+	Meta      []metaT
+}
+
+func writeNodeMeta(ctx context.Context, in *writeNoteMetaInput) error {
+	var n int
+	cols := []string{"id", "round", "value", "updated"}
+	m := make(map[int][]*spanner.Mutation)
+	for _, v := range in.Meta {
+		add := []interface{}{
+			v.Id,
+			v.Round,
+			v.Value,
+			spanner.CommitTimestamp,
+		}
+
+		mut := spanner.InsertOrUpdate(*flags.Meta, cols, add)
+		idx := n / 5000 // mutation limit: ~(20000)/4cols
+		if m[idx] == nil {
+			m[idx] = []*spanner.Mutation{}
+		}
+
+		m[idx] = append(m[idx], mut)
+		n++
+	}
+
+	// Actual spanner db writes.
+	var sperrs []error
+	func() {
+		var n int
+		defer func(begin time.Time, n *int) {
+			glog.Infof("[spanner] %v written to %v, took %v", *n, *flags.Meta, time.Since(begin))
+		}(time.Now(), &n)
+
+		for _, recs := range m {
+			n += len(recs)
+			_, err := in.FleetData.App.Client.Apply(ctx, recs)
+			if err != nil {
+				glog.Errorf("spanner.Apply failed: %v", err)
+				sperrs = append(sperrs, err)
+			}
+		}
+	}()
+
+	if len(sperrs) > 0 {
+		return fmt.Errorf("%v", sperrs)
+	}
+
+	return nil
+}
+
 type StartPaxosInput struct {
 	FleetData *FleetData `json:"fd,omitempty"`
 	Key       string     `json:"key,omitempty"`
@@ -100,12 +201,39 @@ type StartPaxosOutput struct {
 }
 
 func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, error) {
-	round, committed, err := GetLastPaxosRound(ctx, in.FleetData)
+	round, committed, err := getLastPaxosRound(ctx, in.FleetData)
 	glog.Infof("round=%v, committed=%v, err=%v", round, committed, err)
 
 	if !committed {
 		return StartPaxosOutput{}, fmt.Errorf("Operation pending. Please try again later.")
 	}
+
+	err = writeMeta(ctx, writeMetaInput{
+		FleetData: in.FleetData,
+		Meta: metaT{
+			Id:    "chain",
+			Round: round + 1,
+			Value: fmt.Sprintf("%v/%v", in.FleetData.App.FleetOp.HostPort(), *flags.Id),
+		},
+	})
+
+	if err != nil {
+		return StartPaxosOutput{}, err
+	}
+
+	defer func() {
+		err := commitMeta(ctx, writeMetaInput{
+			FleetData: in.FleetData,
+			Meta: metaT{
+				Id:    "chain",
+				Round: round + 1,
+			},
+		})
+
+		if err != nil {
+			glog.Errorf("commitMeta failed: %v", err)
+		}
+	}()
 
 	// Try multi-paxos concensus here.
 	ch := make(chan hedge.BroadcastOutput)
@@ -114,6 +242,7 @@ func StartPaxos(ctx context.Context, in *StartPaxosInput) (StartPaxosOutput, err
 			RoundNum: round + 1,
 			AcceptId: 0,
 			NodeId:   int64(*flags.Id),
+			Value:    fmt.Sprintf("+%v %v", in.Key, in.Value), // addtoset fmt: <+key value>
 		},
 		EventSource,
 		CtrlBroadcastPaxosPhase2Accept,

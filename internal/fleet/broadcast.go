@@ -1,11 +1,13 @@
 package fleet
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"sync/atomic"
 
+	"github.com/alphauslabs/juno/internal/flags"
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
@@ -71,5 +73,50 @@ func doBroadcastPaxosPhase1Prepare(fd *FleetData, e *cloudevents.Event) ([]byte,
 }
 
 func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
-	return nil, nil
+	var data Accept
+	err := json.Unmarshal(e.Data(), &data)
+	if err != nil {
+		return nil, err
+	}
+
+	out := Accepted{
+		RoundNum: data.RoundNum,
+		AcceptId: data.AcceptId,
+		NodeId:   int64(*flags.Id),
+	}
+
+	switch {
+	case data.AcceptId == 0: // leader, always accept
+		err := writeNodeMeta(context.Background(), &writeNoteMetaInput{
+			FleetData: fd,
+			Meta: []metaT{
+				{
+					Id:    fmt.Sprintf("%v/lastPromisedId", int64(*flags.Id)),
+					Round: data.RoundNum,
+					Value: "0",
+				},
+				{
+					Id:    fmt.Sprintf("%v/lastAcceptedId", int64(*flags.Id)),
+					Round: data.RoundNum,
+					Value: "0",
+				},
+				{
+					Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
+					Round: data.RoundNum,
+					Value: data.Value,
+				},
+			},
+		})
+
+		if err != nil {
+			glog.Errorf("writeNodeMeta failed: %v", err)
+			return nil, err
+		}
+	default:
+		glog.Infof("accept: not leader, NACK")
+		out.Error = fmt.Errorf("NACK: not leader (tmp).")
+	}
+
+	outb, _ := json.Marshal(out)
+	return outb, nil
 }

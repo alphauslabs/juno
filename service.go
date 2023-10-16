@@ -30,6 +30,9 @@ func (s *service) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.Unlock
 func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.AddToSetResponse, error) {
 	defer func(begin time.Time) { glog.Infof("method AddToSet took %v", time.Since(begin)) }(time.Now())
 
+	reqb, _ := json.Marshal(req)
+	glog.Infof("request=%v", string(reqb))
+
 	var attempts int
 	bo := gaxv2.Backoff{Max: time.Minute}
 	for {
