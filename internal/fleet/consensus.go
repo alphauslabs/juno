@@ -206,8 +206,8 @@ type ReachConsensusOutput struct {
 	Count int    `json:"count,omitempty"`
 }
 
-// ReachConsensus is our generic function to reach consensus on a value across a quorum of
-// nodes using the multi-paxos algorithm variant.
+// ReachConsensus is our generic function to reach consensus on a value across a quorum of nodes
+// using the multi-paxos algorithm variant.
 func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsensusOutput, error) {
 	round, committed, err := getLastPaxosRound(ctx, in.FleetData)
 	glog.Infof("round=%v, committed=%v, err=%v", round, committed, err)
