@@ -3,11 +3,13 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/alphauslabs/juno/internal"
+	"github.com/alphauslabs/juno/internal/flags"
 	"github.com/golang/glog"
 	gaxv2 "github.com/googleapis/gax-go/v2"
 )
@@ -89,7 +91,7 @@ func BuildSet(ctx context.Context, fd *FleetData) error {
 
 	outb, err := SendToLeader(ctx, fd.App, b, SendToLeaderExtra{RetryCount: 1})
 	if err != nil {
-		glog.Errorf("BuildSet failed: %v", err)
+		glog.Errorf("SendToLeader failed: %v", err)
 		return err
 	}
 
@@ -102,55 +104,86 @@ func BuildSet(ctx context.Context, fd *FleetData) error {
 
 	glog.Infof("latest=%+v", out)
 
-	ins := make(map[int]struct{})
-	vals, err := getValues(ctx, fd)
-	if err != nil {
-		glog.Errorf("BuildSet failed: %v", err)
-		return err
-	}
-
-	for _, v := range vals {
-		ins[int(v.Round)] = struct{}{}
-	}
-
-	missing := []int{}
-	for i := 1; i <= int(out.Round); i++ {
-		if _, ok := ins[i]; !ok {
-			missing = append(missing, i)
+	var retries int
+	for {
+		retries++
+		if retries >= 3 {
+			break
 		}
-	}
 
-	if len(missing) > 0 {
-		glog.Infof("missing rounds: %v", missing)
-		bo := gaxv2.Backoff{} // 30s
-		for i := 0; i < 10; i++ {
-			add := make(map[int]string)
-			b, _ = json.Marshal(internal.NewEvent(
-				LearnValuesInput{Rounds: missing},
-				EventSource,
-				CtrlBroadcastPaxosLearnValues,
-			))
+		ins := make(map[int]struct{})
+		vals, err := getValues(ctx, fd)
+		if err != nil {
+			glog.Errorf("getValues failed: %v", err)
+			return err
+		}
 
-			outs := fd.App.FleetOp.Broadcast(ctx, b)
-			for _, out := range outs {
-				var o []LearnValuesOutput
-				err = json.Unmarshal(out.Reply, &o)
-				if err != nil {
-					glog.Errorf("Unmarshal failed for %v: %v", out.Id, err)
-					continue
+		for _, v := range vals {
+			ins[int(v.Round)] = struct{}{}
+		}
+
+		missing := []int{}
+		for i := 1; i <= int(out.Round); i++ {
+			if _, ok := ins[i]; !ok {
+				missing = append(missing, i)
+			}
+		}
+
+		if len(missing) > 0 {
+			glog.Infof("missing=%v", missing)
+			bo := gaxv2.Backoff{} // 30s
+			for i := 0; i < 10; i++ {
+				add := make(map[int]string)
+				b, _ = json.Marshal(internal.NewEvent(
+					LearnValuesInput{Rounds: missing},
+					EventSource,
+					CtrlBroadcastPaxosLearnValues,
+				))
+
+				outs := fd.App.FleetOp.Broadcast(ctx, b)
+				for _, out := range outs {
+					var o []LearnValuesOutput
+					err = json.Unmarshal(out.Reply, &o)
+					if err != nil {
+						glog.Errorf("Unmarshal failed for %v: %v", out.Id, err)
+						continue
+					}
+
+					for _, v := range o {
+						add[int(v.Value.Round)] = v.Value.Value
+					}
 				}
 
-				for _, v := range o {
-					add[int(v.Value.Round)] = v.Value.Value
+				if len(missing) != len(add) {
+					glog.Errorf("not matched, retry: missing=%v, add=%+v", missing, add)
+					time.Sleep(bo.Pause())
+				} else {
+					wmeta := []metaT{}
+					for k, v := range add {
+						wmeta = append(wmeta, metaT{
+							Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
+							Round: int64(k),
+							Value: v,
+						})
+					}
+
+					writeNodeMeta(ctx, &writeNoteMetaInput{
+						FleetData: fd,
+						Meta:      wmeta,
+					})
+
+					break // don't forget
 				}
 			}
-
-			if len(missing) != len(add) {
-				glog.Errorf("something is wrong with lens, %v, %v, %v, %+v", len(missing), len(add), missing, add)
-				time.Sleep(bo.Pause())
-			} else {
-				break
+		} else {
+			// Update our replicated state machine.
+			for _, v := range vals {
+				fd.Set.Apply(v.Value)
 			}
+
+			copy := fd.Set.Clone()
+			glog.Infof("clone=%+v", copy)
+			break // main
 		}
 	}
 
