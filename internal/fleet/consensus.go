@@ -52,17 +52,19 @@ type Accepted struct {
 	NodeId   int64 `json:"nodeId"` // tie-breaker
 }
 
-type roundT struct {
+type sMetaT struct {
+	Id        spanner.NullString
 	Round     spanner.NullInt64
+	Value     spanner.NullString
 	Updated   spanner.NullTime
 	Committed spanner.NullTime
 }
 
 // getLastPaxosRound returns the last/current paxos round, and an indication if
 // the round is already committed (false = still ongoing).
-func getLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) {
+func getLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, string, error) {
 	var q strings.Builder
-	fmt.Fprintf(&q, "select round, updated, committed from %s ", *flags.Meta)
+	fmt.Fprintf(&q, "select round, value, updated, committed from %s ", *flags.Meta)
 	fmt.Fprintf(&q, "where id = 'chain' and ")
 	fmt.Fprintf(&q, "((updated = committed) or (updated is not null and committed is null)) ")
 	fmt.Fprintf(&q, "order by round desc limit 1")
@@ -73,31 +75,23 @@ func getLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) 
 
 	rows, err := internal.QuerySpannerSingle(ctx, in)
 	if err != nil {
-		return 0, true, err
+		return 0, true, "", err
 	}
 
 	for _, row := range rows {
-		var v roundT
+		var v sMetaT
 		err = row.ToStruct(&v)
 		if err != nil {
-			return 0, true, err
+			return 0, true, "", err
 		}
 
 		glog.Infof("meta: round=%v, updated=%v, committed=%v",
 			v.Round.Int64, v.Updated.Time.Format(time.RFC3339), v.Committed.Time.Format(time.RFC3339))
 
-		return v.Round.Int64, !v.Committed.IsNull(), nil
+		return v.Round.Int64, !v.Committed.IsNull(), internal.SpannerString(v.Value), nil
 	}
 
-	return 0, true, nil
-}
-
-type sMetaT struct {
-	Id        spanner.NullString
-	Round     spanner.NullInt64
-	Value     spanner.NullString
-	Updated   spanner.NullTime
-	Committed spanner.NullTime
+	return 0, true, "", nil
 }
 
 type RoundInfo struct {
@@ -285,6 +279,8 @@ type ReachConsensusInput struct {
 	CmdType   string     `json:"cmdType,omitempty"`
 	Key       string     `json:"key,omitempty"`
 	Value     string     `json:"value,omitempty"`
+
+	broadcast bool `json:"-"` // so we know it's called via broadcast
 }
 
 type ReachConsensusOutput struct {
@@ -294,12 +290,40 @@ type ReachConsensusOutput struct {
 }
 
 // ReachConsensus is our generic function to reach consensus on a value across a quorum of nodes
-// using the multi-paxos algorithm variant.
+// using the multi-paxos algorithm variant. Normally called by the leader.
 func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsensusOutput, error) {
-	round, committed, err := getLastPaxosRound(ctx, in.FleetData)
+	// TODO: Observe perf with synchronous fn.
+	in.FleetData.consensusMutex.Lock()
+	defer in.FleetData.consensusMutex.Unlock()
+
+	round, committed, val, err := getLastPaxosRound(ctx, in.FleetData)
 	glog.Infof("round=%v, committed=%v, err=%v", round, committed, err)
 
 	if !committed {
+		if !in.broadcast {
+			// This is our way of attempting to reset a stuck chain/round number.
+			if val == "reset" {
+				in.FleetData.App.Client.ReadWriteTransaction(ctx,
+					func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+						var q strings.Builder
+						fmt.Fprintf(&q, "delete from %s ", *flags.Meta)
+						fmt.Fprintf(&q, "where id = 'chain' and round = %v", round)
+						_, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
+						return err
+					},
+				)
+			} else {
+				writeMeta(ctx, writeMetaInput{
+					FleetData: in.FleetData,
+					Meta: metaT{
+						Id:    "chain",
+						Round: round,
+						Value: "reset",
+					},
+				})
+			}
+		}
+
 		return nil, fmt.Errorf("Operation pending. Please try again later.")
 	}
 
@@ -316,7 +340,12 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		return nil, err
 	}
 
-	defer func() {
+	var commit bool
+	defer func(pCommit *bool) {
+		if !*pCommit {
+			return
+		}
+
 		err := commitMeta(ctx, writeMetaInput{
 			FleetData: in.FleetData,
 			Meta: metaT{
@@ -328,7 +357,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		if err != nil {
 			glog.Errorf("commitMeta failed: %v", err)
 		}
-	}()
+	}(&commit)
 
 	var value string
 	switch in.CmdType {
@@ -404,5 +433,33 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		return nil, fmt.Errorf("Quorum not reached.")
 	}
 
+	// We have agreed on a value. Broadcast to all.
+	// NOTE: We assume that the caller for this is always the leader, direct or broadcast.
+	// This write is to ensure that the leader will always have the latest agreed value.
+	// The broadcast below will be for all the nodes, including the leader, which means a
+	// double-write for the leader node, which is okay for now.
+	writeMeta(ctx, writeMetaInput{
+		FleetData: in.FleetData,
+		Meta: metaT{
+			Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
+			Round: round + 1,
+			Value: value,
+		},
+	})
+
+	b, _ = json.Marshal(internal.NewEvent(
+		Accept{ // reuse this struct
+			RoundNum: round + 1,
+			Value:    value,
+		},
+		EventSource,
+		CtrlBroadcastPaxosLearnValue,
+	))
+
+	// TODO: This is not a good idea; we could end
+	// up with a massive number of goroutines here.
+	go in.FleetData.App.FleetOp.Broadcast(ctx, b)
+
+	commit = true // commit our round number (see defer)
 	return &ReachConsensusOutput{Key: in.Key, Value: in.Value}, nil
 }

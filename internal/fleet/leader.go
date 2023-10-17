@@ -62,6 +62,7 @@ func doLeaderFwdConsensus(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 
 	ctx := context.Background()
 	data.FleetData = fd
+	data.broadcast = true
 	out, err := ReachConsensus(ctx, &data)
 	outb, _ := json.Marshal(out)
 	return outb, err
@@ -96,7 +97,12 @@ func EnsureLeaderActive(ctx context.Context, app *appdata.AppData) (bool, error)
 	}
 }
 
-func SendToLeader(ctx context.Context, app *appdata.AppData, m []byte) ([]byte, error) {
+type SendToLeaderExtra struct {
+	RetryCount int
+	BackOff    *gaxv2.Backoff // use if non-nil
+}
+
+func SendToLeader(ctx context.Context, app *appdata.AppData, m []byte, extra ...SendToLeaderExtra) ([]byte, error) {
 	result := make(chan []byte, 1)
 	done := make(chan error, 1)
 	go func() {
@@ -116,7 +122,18 @@ func SendToLeader(ctx context.Context, app *appdata.AppData, m []byte) ([]byte, 
 		}
 
 		bo = gaxv2.Backoff{Max: time.Second * 10}
-		for i := 0; i < 3; i++ {
+		limit := 3
+		if len(extra) > 0 {
+			if extra[0].BackOff != nil {
+				bo = *extra[0].BackOff
+			}
+
+			if extra[0].RetryCount > 0 {
+				limit = extra[0].RetryCount
+			}
+		}
+
+		for i := 0; i < limit; i++ {
 			var r []byte
 			r, err = app.FleetOp.Send(ctx, m)
 			if err != nil {

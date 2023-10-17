@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	"github.com/alphauslabs/juno/internal/flags"
 	cloudevents "github.com/cloudevents/sdk-go/v2"
@@ -22,12 +23,14 @@ var (
 	CtrlBroadcastLeaderLiveness     = "CTRL_BROADCAST_LEADER_LIVENESS"
 	CtrlBroadcastPaxosPhase1Prepare = "CTRL_BROADCAST_PAXOS_PHASE1_PREPARE"
 	CtrlBroadcastPaxosPhase2Accept  = "CTRL_BROADCAST_PAXOS_PHASE2_ACCEPT"
+	CtrlBroadcastPaxosLearnValue    = "CTRL_BROADCAST_PAXOS_LEARN_VALUE"
 
 	fnBroadcast = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
 		CtrlBroadcastTest:               doBroadcastTest,
 		CtrlBroadcastLeaderLiveness:     doBroadcastLeaderLiveness,
 		CtrlBroadcastPaxosPhase1Prepare: doBroadcastPaxosPhase1Prepare,
 		CtrlBroadcastPaxosPhase2Accept:  doBroadcastPaxosPhase2Accept,
+		CtrlBroadcastPaxosLearnValue:    doBroadcastPaxosLearnValue,
 	}
 )
 
@@ -99,7 +102,7 @@ func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, 
 					Value: "0",
 				},
 				{
-					Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
+					Id:    fmt.Sprintf("%v/lastValue", int64(*flags.Id)),
 					Round: data.RoundNum,
 					Value: data.Value,
 				},
@@ -117,4 +120,29 @@ func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, 
 
 	outb, _ := json.Marshal(out)
 	return outb, nil
+}
+
+func doBroadcastPaxosLearnValue(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	defer func(begin time.Time) { glog.Infof("doBroadcastPaxosLearnValue took %v", time.Since(begin)) }(time.Now())
+
+	var data Accept // reuse this struct for the broadcast
+	err := json.Unmarshal(e.Data(), &data)
+	if err != nil {
+		return nil, err
+	}
+
+	err = writeMeta(context.Background(), writeMetaInput{
+		FleetData: fd,
+		Meta: metaT{
+			Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
+			Round: data.RoundNum,
+			Value: data.Value,
+		},
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, nil
 }

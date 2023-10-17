@@ -81,33 +81,44 @@ func BuildSet(ctx context.Context, fd *FleetData) error {
 	defer func(begin time.Time) { glog.Infof("fn BuildSet took %v", time.Since(begin)) }(time.Now())
 
 	b, _ := json.Marshal(internal.NewEvent(
-		RoundInfo{RoundNum: 10},
+		RoundInfo{RoundNum: -1},
 		EventSource,
 		CtrlLeaderGetRoundInfo,
 	))
 
-	outb, err := SendToLeader(ctx, fd.App, b)
+	outb, err := SendToLeader(ctx, fd.App, b, SendToLeaderExtra{RetryCount: 1})
 	if err != nil {
 		glog.Errorf("BuildSet failed: %v", err)
 		return err
 	}
 
 	var ri RoundInfo
-	json.Unmarshal(outb, &ri)
-	refSeq := make(map[int]struct{})
-	for i := 1; i <= int(ri.RoundNum); i++ {
-		refSeq[i] = struct{}{}
+	err = json.Unmarshal(outb, &ri)
+	if err != nil {
+		glog.Errorf("Unmarshal failed: %v", err)
+		return err
 	}
 
+	glog.Infof("RoundInfo: %+v", ri)
+
+	ins := make(map[int]struct{})
 	vals, err := getValues(ctx, fd)
 	if err != nil {
 		glog.Errorf("BuildSet failed: %v", err)
 		return err
 	}
 
+	if len(vals) == 0 {
+		glog.Infof("todo: missing all rounds")
+	}
+
 	for _, v := range vals {
-		if _, ok := refSeq[int(v.RoundNum)]; !ok {
-			glog.Infof("todo: missing round %v", v.RoundNum)
+		ins[int(v.RoundNum)] = struct{}{}
+	}
+
+	for i := 1; i <= int(ri.RoundNum); i++ {
+		if _, ok := ins[i]; !ok {
+			glog.Infof("todo: missing round %v", i)
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -55,7 +56,18 @@ func testClient() {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	opts = append(opts, grpc.WithBlock())
-	conn, err := grpc.DialContext(ctx, "localhost:"+*flags.Client, opts...)
+	ss := strings.Split(*flags.Client, ",")
+	key, val := "set1", "val1"
+	if len(ss) == 2 {
+		key = ss[1]
+	}
+
+	if len(ss) == 3 {
+		key = ss[1]
+		val = ss[2]
+	}
+
+	conn, err := grpc.DialContext(ctx, "localhost:"+ss[0], opts...)
 	if err != nil {
 		slog.Error("fail to dial:", "err", err)
 		return
@@ -64,8 +76,8 @@ func testClient() {
 	defer conn.Close()
 	client := v1.NewJunoClient(conn)
 	out, err := client.AddToSet(ctx, &v1.AddToSetRequest{
-		Key:   "set1",
-		Value: "val1",
+		Key:   key,
+		Value: val,
 	})
 
 	if err != nil {
