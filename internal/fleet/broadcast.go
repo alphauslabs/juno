@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/alphauslabs/juno/internal"
 	"github.com/alphauslabs/juno/internal/flags"
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/flowerinthenight/hedge"
@@ -23,14 +25,16 @@ var (
 	CtrlBroadcastLeaderLiveness     = "CTRL_BROADCAST_LEADER_LIVENESS"
 	CtrlBroadcastPaxosPhase1Prepare = "CTRL_BROADCAST_PAXOS_PHASE1_PREPARE"
 	CtrlBroadcastPaxosPhase2Accept  = "CTRL_BROADCAST_PAXOS_PHASE2_ACCEPT"
-	CtrlBroadcastPaxosLearnValue    = "CTRL_BROADCAST_PAXOS_LEARN_VALUE"
+	CtrlBroadcastPaxosSetValue      = "CTRL_BROADCAST_PAXOS_SET_VALUE"
+	CtrlBroadcastPaxosLearnValues   = "CTRL_BROADCAST_PAXOS_LEARN_VALUES"
 
 	fnBroadcast = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
 		CtrlBroadcastTest:               doBroadcastTest,
 		CtrlBroadcastLeaderLiveness:     doBroadcastLeaderLiveness,
 		CtrlBroadcastPaxosPhase1Prepare: doBroadcastPaxosPhase1Prepare,
 		CtrlBroadcastPaxosPhase2Accept:  doBroadcastPaxosPhase2Accept,
-		CtrlBroadcastPaxosLearnValue:    doBroadcastPaxosLearnValue,
+		CtrlBroadcastPaxosSetValue:      doBroadcastPaxosSetValue,
+		CtrlBroadcastPaxosLearnValues:   doBroadcastPaxosLearnValues,
 	}
 )
 
@@ -81,7 +85,7 @@ func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, 
 	}
 
 	out := Accepted{
-		RoundNum: data.RoundNum,
+		Round:    data.Round,
 		AcceptId: data.AcceptId,
 		NodeId:   int64(*flags.Id),
 	}
@@ -93,17 +97,17 @@ func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, 
 			Meta: []metaT{
 				{
 					Id:    fmt.Sprintf("%v/lastPromisedId", int64(*flags.Id)),
-					Round: data.RoundNum,
+					Round: data.Round,
 					Value: "0",
 				},
 				{
 					Id:    fmt.Sprintf("%v/lastAcceptedId", int64(*flags.Id)),
-					Round: data.RoundNum,
+					Round: data.Round,
 					Value: "0",
 				},
 				{
 					Id:    fmt.Sprintf("%v/lastValue", int64(*flags.Id)),
-					Round: data.RoundNum,
+					Round: data.Round,
 					Value: data.Value,
 				},
 			},
@@ -122,8 +126,8 @@ func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, 
 	return outb, nil
 }
 
-func doBroadcastPaxosLearnValue(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
-	defer func(begin time.Time) { glog.Infof("doBroadcastPaxosLearnValue took %v", time.Since(begin)) }(time.Now())
+func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	defer func(begin time.Time) { glog.Infof("doBroadcastPaxosSetValue took %v", time.Since(begin)) }(time.Now())
 
 	var data Accept // reuse this struct for the broadcast
 	err := json.Unmarshal(e.Data(), &data)
@@ -135,7 +139,7 @@ func doBroadcastPaxosLearnValue(fd *FleetData, e *cloudevents.Event) ([]byte, er
 		FleetData: fd,
 		Meta: metaT{
 			Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
-			Round: data.RoundNum,
+			Round: data.Round,
 			Value: data.Value,
 		},
 	})
@@ -145,4 +149,61 @@ func doBroadcastPaxosLearnValue(fd *FleetData, e *cloudevents.Event) ([]byte, er
 	}
 
 	return nil, nil
+}
+
+type LearnValuesInput struct {
+	Rounds []int `json:"rounds"`
+}
+
+type LearnValuesOutput struct {
+	Value Accept `json:"value"` // reuse
+}
+
+func doBroadcastPaxosLearnValues(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	defer func(begin time.Time) { glog.Infof("doBroadcastPaxosLearnValues took %v", time.Since(begin)) }(time.Now())
+
+	var data LearnValuesInput
+	err := json.Unmarshal(e.Data(), &data)
+	if err != nil {
+		return nil, err
+	}
+
+	rounds := []string{}
+	for _, i := range data.Rounds {
+		rounds = append(rounds, fmt.Sprintf("%v", i))
+	}
+
+	out := []LearnValuesOutput{}
+	var q strings.Builder
+	fmt.Fprintf(&q, "select round, value from %s ", *flags.Meta)
+	fmt.Fprintf(&q, "where id = '%v/value' and round in (%s)", *flags.Id, strings.Join(rounds, ","))
+
+	in := &internal.QuerySpannerSingleInput{
+		Client: fd.App.Client,
+		Query:  q.String(),
+	}
+
+	ctx := context.Background()
+	rows, err := internal.QuerySpannerSingle(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		var v sMetaT
+		err = row.ToStruct(&v)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, LearnValuesOutput{
+			Value: Accept{
+				Round: v.Round.Int64,
+				Value: internal.SpannerString(v.Value),
+			},
+		})
+	}
+
+	outb, _ := json.Marshal(out)
+	return outb, nil
 }

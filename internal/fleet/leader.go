@@ -17,14 +17,14 @@ import (
 )
 
 var (
-	CtrlLeaderPingPong     = "CTRL_PING_PONG"
-	CtrlLeaderFwdConsensus = "CTRL_LEADER_FWD_CONSENSUS"
-	CtrlLeaderGetRoundInfo = "CTRL_LEADER_GET_ROUND_INFO"
+	CtrlLeaderPingPong       = "CTRL_PING_PONG"
+	CtrlLeaderFwdConsensus   = "CTRL_LEADER_FWD_CONSENSUS"
+	CtrlLeaderGetLatestRound = "CTRL_LEADER_GET_LATEST_ROUND"
 
 	fnLeader = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
-		CtrlLeaderPingPong:     doLeaderPingPong,
-		CtrlLeaderFwdConsensus: doLeaderFwdConsensus,
-		CtrlLeaderGetRoundInfo: doLeaderGetRoundInfo,
+		CtrlLeaderPingPong:       doLeaderPingPong,
+		CtrlLeaderFwdConsensus:   doLeaderFwdConsensus,
+		CtrlLeaderGetLatestRound: doLeaderGetLatestRound,
 	}
 )
 
@@ -68,15 +68,9 @@ func doLeaderFwdConsensus(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	return outb, err
 }
 
-func doLeaderGetRoundInfo(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
-	var data RoundInfo
-	err := json.Unmarshal(e.Data(), &data)
-	if err != nil {
-		return nil, err
-	}
-
+func doLeaderGetLatestRound(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	ctx := context.Background()
-	out, err := getRoundInfo(ctx, fd, data)
+	out, err := getLastPaxosRound(ctx, fd)
 	outb, _ := json.Marshal(out)
 	return outb, err
 }

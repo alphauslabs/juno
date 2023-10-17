@@ -22,7 +22,7 @@ var (
 type Prepare struct {
 	PrepareId int64 `json:"prepareId"` // proposal
 	NodeId    int64 `json:"nodeId"`    // tie-breaker
-	RoundNum  int64 `json:"roundNum"`  // multipaxos round number
+	Round     int64 `json:"round"`     // multipaxos round number
 }
 
 // Phase 1b:
@@ -30,7 +30,7 @@ type Promise struct {
 	Error          error  `json:"error"`     // non-nil = NACK
 	PrepareId      int64  `json:"prepareId"` // proposal
 	NodeId         int64  `json:"nodeId"`    // tie-breaker
-	RoundNum       int64  `json:"roundNum"`  // multipaxos round number
+	Round          int64  `json:"round"`     // multipaxos round number
 	LastPrepareId  int64  `json:"lastPrepareId"`
 	LastAcceptedId int64  `json:"lastAcceptedId"`
 	Value          string `json:"value"`
@@ -38,7 +38,7 @@ type Promise struct {
 
 // Phase 2a:
 type Accept struct {
-	RoundNum int64  `json:"roundNum"` // multipaxos round number
+	Round    int64  `json:"round"` // multipaxos round number
 	AcceptId int64  `json:"acceptId"`
 	NodeId   int64  `json:"nodeId"` // tie-breaker
 	Value    string `json:"value"`
@@ -46,8 +46,8 @@ type Accept struct {
 
 // Phase 2b:
 type Accepted struct {
-	Error    error `json:"error"`    // non-nil = NACK
-	RoundNum int64 `json:"roundNum"` // multipaxos round number
+	Error    error `json:"error"` // non-nil = NACK
+	Round    int64 `json:"round"` // multipaxos round number
 	AcceptId int64 `json:"acceptId"`
 	NodeId   int64 `json:"nodeId"` // tie-breaker
 }
@@ -60,64 +60,21 @@ type sMetaT struct {
 	Committed spanner.NullTime
 }
 
+type lastPaxosRoundOutput struct {
+	Round     int64  `json:"round"`
+	Value     string `json:"value"`
+	Committed bool   `json:"committed"`
+}
+
 // getLastPaxosRound returns the last/current paxos round, and an indication if
 // the round is already committed (false = still ongoing).
-func getLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, string, error) {
+func getLastPaxosRound(ctx context.Context, fd *FleetData) (lastPaxosRoundOutput, error) {
+	var out lastPaxosRoundOutput
 	var q strings.Builder
 	fmt.Fprintf(&q, "select round, value, updated, committed from %s ", *flags.Meta)
 	fmt.Fprintf(&q, "where id = 'chain' and ")
 	fmt.Fprintf(&q, "((updated = committed) or (updated is not null and committed is null)) ")
 	fmt.Fprintf(&q, "order by round desc limit 1")
-	in := &internal.QuerySpannerSingleInput{
-		Client: fd.App.Client,
-		Query:  q.String(),
-	}
-
-	rows, err := internal.QuerySpannerSingle(ctx, in)
-	if err != nil {
-		return 0, true, "", err
-	}
-
-	for _, row := range rows {
-		var v sMetaT
-		err = row.ToStruct(&v)
-		if err != nil {
-			return 0, true, "", err
-		}
-
-		glog.Infof("meta: round=%v, updated=%v, committed=%v",
-			v.Round.Int64, v.Updated.Time.Format(time.RFC3339), v.Committed.Time.Format(time.RFC3339))
-
-		return v.Round.Int64, !v.Committed.IsNull(), internal.SpannerString(v.Value), nil
-	}
-
-	return 0, true, "", nil
-}
-
-type RoundInfo struct {
-	RoundNum int64  `json:"roundNum"` // multipaxos round number
-	Value    string `json:"value"`    // agreed value for this round
-}
-
-// getRoundInfo gets the value of a specific multi-paxos round. Usually called by the leader.
-func getRoundInfo(ctx context.Context, fd *FleetData, ri RoundInfo) (RoundInfo, error) {
-	defer func(begin time.Time) { glog.Infof("getRoundInfo took %v", time.Since(begin)) }(time.Now())
-
-	var out RoundInfo
-	var q strings.Builder
-	switch {
-	case ri.RoundNum < 0: // get latest
-		fmt.Fprintf(&q, "select round, value from %s ", *flags.Meta)
-		fmt.Fprintf(&q, "where id = '%v/value' ", *flags.Id)
-		fmt.Fprintf(&q, "and round = (select round from %s ", *flags.Meta)
-		fmt.Fprintf(&q, "where id = 'chain' and updated is not null ")
-		fmt.Fprintf(&q, "and committed is not null order by round desc limit 1)")
-	default: // specific
-		fmt.Fprintf(&q, "select round, value from %s ", *flags.Meta)
-		fmt.Fprintf(&q, "where id = '%v/value' ", *flags.Id)
-		fmt.Fprintf(&q, "and round = %v", ri.RoundNum)
-	}
-
 	in := &internal.QuerySpannerSingleInput{
 		Client: fd.App.Client,
 		Query:  q.String(),
@@ -135,12 +92,21 @@ func getRoundInfo(ctx context.Context, fd *FleetData, ri RoundInfo) (RoundInfo, 
 			return out, err
 		}
 
-		out.RoundNum = v.Round.Int64
+		glog.Infof("meta: round=%v, updated=%v, committed=%v",
+			v.Round.Int64, v.Updated.Time.Format(time.RFC3339), v.Committed.Time.Format(time.RFC3339))
+
+		out.Round = v.Round.Int64
 		out.Value = internal.SpannerString(v.Value)
+		out.Committed = !v.Committed.IsNull()
 		return out, nil
 	}
 
-	return out, fmt.Errorf("Round [%v] not found.", ri.RoundNum)
+	return out, nil
+}
+
+type RoundInfo struct {
+	Round int64  `json:"round"` // multipaxos round number
+	Value string `json:"value"` // agreed value for this round
 }
 
 // getValues gets all values for a specific node to apply to its internal rsm.
@@ -170,8 +136,8 @@ func getValues(ctx context.Context, fd *FleetData) ([]RoundInfo, error) {
 		}
 
 		out = append(out, RoundInfo{
-			RoundNum: v.Round.Int64,
-			Value:    internal.SpannerString(v.Value),
+			Round: v.Round.Int64,
+			Value: internal.SpannerString(v.Value),
 		})
 	}
 
@@ -296,18 +262,18 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	in.FleetData.consensusMutex.Lock()
 	defer in.FleetData.consensusMutex.Unlock()
 
-	round, committed, val, err := getLastPaxosRound(ctx, in.FleetData)
-	glog.Infof("round=%v, committed=%v, err=%v", round, committed, err)
+	out, err := getLastPaxosRound(ctx, in.FleetData)
+	glog.Infof("round=%v, committed=%v, err=%v", out.Round, out.Committed, err)
 
-	if !committed {
+	if !out.Committed {
 		if !in.broadcast {
 			// This is our way of attempting to reset a stuck chain/round number.
-			if val == "reset" {
+			if out.Value == "reset" {
 				in.FleetData.App.Client.ReadWriteTransaction(ctx,
 					func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 						var q strings.Builder
 						fmt.Fprintf(&q, "delete from %s ", *flags.Meta)
-						fmt.Fprintf(&q, "where id = 'chain' and round = %v", round)
+						fmt.Fprintf(&q, "where id = 'chain' and round = %v", out.Round)
 						_, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
 						return err
 					},
@@ -317,7 +283,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 					FleetData: in.FleetData,
 					Meta: metaT{
 						Id:    "chain",
-						Round: round,
+						Round: out.Round,
 						Value: "reset",
 					},
 				})
@@ -331,7 +297,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		FleetData: in.FleetData,
 		Meta: metaT{
 			Id:    "chain",
-			Round: round + 1,
+			Round: out.Round + 1,
 			Value: fmt.Sprintf("%v/%v", in.FleetData.App.FleetOp.HostPort(), *flags.Id),
 		},
 	})
@@ -350,7 +316,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 			FleetData: in.FleetData,
 			Meta: metaT{
 				Id:    "chain",
-				Round: round + 1,
+				Round: out.Round + 1,
 			},
 		})
 
@@ -371,7 +337,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	ch := make(chan hedge.BroadcastOutput)
 	b, _ := json.Marshal(internal.NewEvent(
 		Accept{
-			RoundNum: round + 1,
+			Round:    out.Round + 1,
 			AcceptId: 0,
 			NodeId:   int64(*flags.Id),
 			Value:    value,
@@ -442,18 +408,18 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		FleetData: in.FleetData,
 		Meta: metaT{
 			Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
-			Round: round + 1,
+			Round: out.Round + 1,
 			Value: value,
 		},
 	})
 
 	b, _ = json.Marshal(internal.NewEvent(
 		Accept{ // reuse this struct
-			RoundNum: round + 1,
-			Value:    value,
+			Round: out.Round + 1,
+			Value: value,
 		},
 		EventSource,
-		CtrlBroadcastPaxosLearnValue,
+		CtrlBroadcastPaxosSetValue,
 	))
 
 	// TODO: This is not a good idea; we could end

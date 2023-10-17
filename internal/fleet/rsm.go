@@ -9,6 +9,7 @@ import (
 
 	"github.com/alphauslabs/juno/internal"
 	"github.com/golang/glog"
+	gaxv2 "github.com/googleapis/gax-go/v2"
 )
 
 type rsmT struct {
@@ -81,9 +82,9 @@ func BuildSet(ctx context.Context, fd *FleetData) error {
 	defer func(begin time.Time) { glog.Infof("fn BuildSet took %v", time.Since(begin)) }(time.Now())
 
 	b, _ := json.Marshal(internal.NewEvent(
-		RoundInfo{RoundNum: -1},
+		struct{}{}, // unused
 		EventSource,
-		CtrlLeaderGetRoundInfo,
+		CtrlLeaderGetLatestRound,
 	))
 
 	outb, err := SendToLeader(ctx, fd.App, b, SendToLeaderExtra{RetryCount: 1})
@@ -92,14 +93,14 @@ func BuildSet(ctx context.Context, fd *FleetData) error {
 		return err
 	}
 
-	var ri RoundInfo
-	err = json.Unmarshal(outb, &ri)
+	var out lastPaxosRoundOutput
+	err = json.Unmarshal(outb, &out)
 	if err != nil {
 		glog.Errorf("Unmarshal failed: %v", err)
 		return err
 	}
 
-	glog.Infof("RoundInfo: %+v", ri)
+	glog.Infof("latest=%+v", out)
 
 	ins := make(map[int]struct{})
 	vals, err := getValues(ctx, fd)
@@ -108,17 +109,48 @@ func BuildSet(ctx context.Context, fd *FleetData) error {
 		return err
 	}
 
-	if len(vals) == 0 {
-		glog.Infof("todo: missing all rounds")
-	}
-
 	for _, v := range vals {
-		ins[int(v.RoundNum)] = struct{}{}
+		ins[int(v.Round)] = struct{}{}
 	}
 
-	for i := 1; i <= int(ri.RoundNum); i++ {
+	missing := []int{}
+	for i := 1; i <= int(out.Round); i++ {
 		if _, ok := ins[i]; !ok {
-			glog.Infof("todo: missing round %v", i)
+			missing = append(missing, i)
+		}
+	}
+
+	if len(missing) > 0 {
+		glog.Infof("missing rounds: %v", missing)
+		bo := gaxv2.Backoff{} // 30s
+		for i := 0; i < 10; i++ {
+			add := make(map[int]string)
+			b, _ = json.Marshal(internal.NewEvent(
+				LearnValuesInput{Rounds: missing},
+				EventSource,
+				CtrlBroadcastPaxosLearnValues,
+			))
+
+			outs := fd.App.FleetOp.Broadcast(ctx, b)
+			for _, out := range outs {
+				var o []LearnValuesOutput
+				err = json.Unmarshal(out.Reply, &o)
+				if err != nil {
+					glog.Errorf("Unmarshal failed for %v: %v", out.Id, err)
+					continue
+				}
+
+				for _, v := range o {
+					add[int(v.Value.Round)] = v.Value.Value
+				}
+			}
+
+			if len(missing) != len(add) {
+				glog.Errorf("something is wrong with lens, %v, %v, %v, %+v", len(missing), len(add), missing, add)
+				time.Sleep(bo.Pause())
+			} else {
+				break
+			}
 		}
 	}
 
