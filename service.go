@@ -41,7 +41,7 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 		} else {
 			attempts++
 			if attempts >= 10 {
-				return nil, status.Errorf(codes.Unavailable, "Leader unavailable. Please try again later.")
+				return nil, status.Errorf(codes.Unavailable, fleet.ErrNoLeader.Error())
 			}
 
 			time.Sleep(bo.Pause())

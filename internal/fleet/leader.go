@@ -19,10 +19,12 @@ import (
 var (
 	CtrlLeaderPingPong     = "CTRL_PING_PONG"
 	CtrlLeaderFwdConsensus = "CTRL_LEADER_FWD_CONSENSUS"
+	CtrlLeaderGetRoundInfo = "CTRL_LEADER_GET_ROUND_INFO"
 
 	fnLeader = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
 		CtrlLeaderPingPong:     doLeaderPingPong,
 		CtrlLeaderFwdConsensus: doLeaderFwdConsensus,
+		CtrlLeaderGetRoundInfo: doLeaderGetRoundInfo,
 	}
 )
 
@@ -61,6 +63,19 @@ func doLeaderFwdConsensus(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	ctx := context.Background()
 	data.FleetData = fd
 	out, err := ReachConsensus(ctx, &data)
+	outb, _ := json.Marshal(out)
+	return outb, err
+}
+
+func doLeaderGetRoundInfo(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	var data RoundInfo
+	err := json.Unmarshal(e.Data(), &data)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := context.Background()
+	out, err := getRoundInfo(ctx, fd, data)
 	outb, _ := json.Marshal(out)
 	return outb, err
 }

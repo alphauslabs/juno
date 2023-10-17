@@ -18,8 +18,6 @@ const (
 )
 
 var (
-	ErrClusterOffline = fmt.Errorf("failed: cluster not running")
-
 	CtrlBroadcastTest               = "CTRL_BROADCAST_TEST"
 	CtrlBroadcastLeaderLiveness     = "CTRL_BROADCAST_LEADER_LIVENESS"
 	CtrlBroadcastPaxosPhase1Prepare = "CTRL_BROADCAST_PAXOS_PHASE1_PREPARE"

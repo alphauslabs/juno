@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -35,13 +34,20 @@ var (
 )
 
 func test() {
-	i, err := strconv.Atoi("n2")
-	if err != nil {
-		slog.Error(err.Error())
-		return
+	rsm := make(map[string]map[string]struct{})
+	rsm["1"] = make(map[string]struct{})
+	rsm["1"]["1"] = struct{}{}
+	rsm["1"]["2"] = struct{}{}
+	rsm["1"]["3"] = struct{}{}
+	rsm["1"]["3"] = struct{}{}
+	slog.Info("len:", "root", len(rsm), "1", len(rsm["1"]))
+
+	copy := make(map[string]map[string]struct{})
+	for k, v := range rsm {
+		copy[k] = v
 	}
 
-	slog.Info("n2", "i", i)
+	slog.Info("copy:", "val", copy)
 }
 
 func testClient() {
@@ -129,7 +135,10 @@ func main() {
 	}
 
 	defer app.Client.Close()
-	fleetData := fleet.FleetData{App: app}
+	fleetData := fleet.FleetData{
+		App: app,
+		Set: fleet.NewRsm(),
+	}
 
 	// Setup our group coordinator.
 	app.FleetOp = hedge.New(
@@ -173,6 +182,8 @@ func main() {
 			atomic.StoreInt64(&app.LeaderId, 0) // set no leader
 		},
 	})
+
+	fleet.BuildSet(cctx(ctx), &fleetData)
 
 	// Setup our gRPC management API.
 	go func() {

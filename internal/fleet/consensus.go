@@ -9,7 +9,6 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/alphauslabs/juno/internal"
-	"github.com/alphauslabs/juno/internal/appdata"
 	"github.com/alphauslabs/juno/internal/flags"
 	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
@@ -18,10 +17,6 @@ import (
 var (
 	CmdTypeAddToSet = "CMDTYPE_ADDTOSET"
 )
-
-type FleetData struct {
-	App *appdata.AppData
-}
 
 // Phase 1a:
 type Prepare struct {
@@ -95,6 +90,98 @@ func getLastPaxosRound(ctx context.Context, fd *FleetData) (int64, bool, error) 
 	}
 
 	return 0, true, nil
+}
+
+type sMetaT struct {
+	Id        spanner.NullString
+	Round     spanner.NullInt64
+	Value     spanner.NullString
+	Updated   spanner.NullTime
+	Committed spanner.NullTime
+}
+
+type RoundInfo struct {
+	RoundNum int64  `json:"roundNum"` // multipaxos round number
+	Value    string `json:"value"`    // agreed value for this round
+}
+
+// getRoundInfo gets the value of a specific multi-paxos round. Usually called by the leader.
+func getRoundInfo(ctx context.Context, fd *FleetData, ri RoundInfo) (RoundInfo, error) {
+	defer func(begin time.Time) { glog.Infof("getRoundInfo took %v", time.Since(begin)) }(time.Now())
+
+	var out RoundInfo
+	var q strings.Builder
+	switch {
+	case ri.RoundNum < 0: // get latest
+		fmt.Fprintf(&q, "select round, value from %s ", *flags.Meta)
+		fmt.Fprintf(&q, "where id = '%v/value' ", *flags.Id)
+		fmt.Fprintf(&q, "and round = (select round from %s ", *flags.Meta)
+		fmt.Fprintf(&q, "where id = 'chain' and updated is not null ")
+		fmt.Fprintf(&q, "and committed is not null order by round desc limit 1)")
+	default: // specific
+		fmt.Fprintf(&q, "select round, value from %s ", *flags.Meta)
+		fmt.Fprintf(&q, "where id = '%v/value' ", *flags.Id)
+		fmt.Fprintf(&q, "and round = %v", ri.RoundNum)
+	}
+
+	in := &internal.QuerySpannerSingleInput{
+		Client: fd.App.Client,
+		Query:  q.String(),
+	}
+
+	rows, err := internal.QuerySpannerSingle(ctx, in)
+	if err != nil {
+		return out, err
+	}
+
+	for _, row := range rows {
+		var v sMetaT
+		err = row.ToStruct(&v)
+		if err != nil {
+			return out, err
+		}
+
+		out.RoundNum = v.Round.Int64
+		out.Value = internal.SpannerString(v.Value)
+		return out, nil
+	}
+
+	return out, fmt.Errorf("Round [%v] not found.", ri.RoundNum)
+}
+
+// getValues gets all values for a specific node to apply to its internal rsm.
+func getValues(ctx context.Context, fd *FleetData) ([]RoundInfo, error) {
+	defer func(begin time.Time) { glog.Infof("getValues took %v", time.Since(begin)) }(time.Now())
+
+	out := []RoundInfo{}
+	var q strings.Builder
+	fmt.Fprintf(&q, "select round, value from %s ", *flags.Meta)
+	fmt.Fprintf(&q, "where id = '%v/value' order by round asc", *flags.Id)
+
+	in := &internal.QuerySpannerSingleInput{
+		Client: fd.App.Client,
+		Query:  q.String(),
+	}
+
+	rows, err := internal.QuerySpannerSingle(ctx, in)
+	if err != nil {
+		return out, err
+	}
+
+	for _, row := range rows {
+		var v sMetaT
+		err = row.ToStruct(&v)
+		if err != nil {
+			return out, err
+		}
+
+		out = append(out, RoundInfo{
+			RoundNum: v.Round.Int64,
+			Value:    internal.SpannerString(v.Value),
+		})
+	}
+
+	return out, nil
 }
 
 type metaT struct {
