@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -101,6 +102,7 @@ func getLastPaxosRound(ctx context.Context, fd *FleetData) (lastPaxosRoundOutput
 		return out, nil
 	}
 
+	out.Committed = true // first entry
 	return out, nil
 }
 
@@ -258,6 +260,10 @@ type ReachConsensusOutput struct {
 // ReachConsensus is our generic function to reach consensus on a value across a quorum of nodes
 // using the multi-paxos algorithm variant. Normally called by the leader.
 func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsensusOutput, error) {
+	if atomic.LoadInt64(&in.FleetData.BuildRsmOn) > 0 {
+		return nil, ErrWipRebuild
+	}
+
 	// TODO: Observe perf with synchronous fn.
 	in.FleetData.consensusMutex.Lock()
 	defer in.FleetData.consensusMutex.Unlock()

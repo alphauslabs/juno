@@ -23,6 +23,7 @@ const (
 var (
 	CtrlBroadcastTest               = "CTRL_BROADCAST_TEST"
 	CtrlBroadcastLeaderLiveness     = "CTRL_BROADCAST_LEADER_LIVENESS"
+	CtrlBroadcastWipRebuildRsm      = "CTRL_BROADCAST_WIP_REBUILD_RSM"
 	CtrlBroadcastPaxosPhase1Prepare = "CTRL_BROADCAST_PAXOS_PHASE1_PREPARE"
 	CtrlBroadcastPaxosPhase2Accept  = "CTRL_BROADCAST_PAXOS_PHASE2_ACCEPT"
 	CtrlBroadcastPaxosSetValue      = "CTRL_BROADCAST_PAXOS_SET_VALUE"
@@ -31,6 +32,7 @@ var (
 	fnBroadcast = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
 		CtrlBroadcastTest:               doBroadcastTest,
 		CtrlBroadcastLeaderLiveness:     doBroadcastLeaderLiveness,
+		CtrlBroadcastWipRebuildRsm:      doBroadcastWipRebuildRsm,
 		CtrlBroadcastPaxosPhase1Prepare: doBroadcastPaxosPhase1Prepare,
 		CtrlBroadcastPaxosPhase2Accept:  doBroadcastPaxosPhase2Accept,
 		CtrlBroadcastPaxosSetValue:      doBroadcastPaxosSetValue,
@@ -70,6 +72,12 @@ func doBroadcastLeaderLiveness(fd *FleetData, e *cloudevents.Event) ([]byte, err
 		fd.App.LeaderActive.On()
 	}
 
+	return nil, nil
+}
+
+func doBroadcastWipRebuildRsm(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	atomic.StoreInt64(&fd.BuildRsmOn, 1)
+	fd.BuildRsmWip.On()
 	return nil, nil
 }
 
@@ -147,6 +155,11 @@ func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
+
+	// Update our replicated state machine.
+	fd.StateMachine.Apply(data.Value)
+	clone := fd.StateMachine.Clone()
+	glog.Infof("dbg: clone=%+v", clone)
 
 	return nil, nil
 }

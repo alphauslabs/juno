@@ -148,9 +148,15 @@ func main() {
 
 	defer app.Client.Close()
 	fleetData := fleet.FleetData{
-		App: app,
-		Set: fleet.NewRsm(),
+		App:          app,
+		StateMachine: fleet.NewRsm(),
 	}
+
+	fleetData.BuildRsmWip = timedoff.New(time.Second*2, &timedoff.CallbackT{
+		Callback: func(args interface{}) {
+			atomic.StoreInt64(&fleetData.BuildRsmOn, 0)
+		},
+	})
 
 	// Setup our group coordinator.
 	app.FleetOp = hedge.New(
@@ -195,7 +201,8 @@ func main() {
 		},
 	})
 
-	fleet.BuildSet(cctx(ctx), &fleetData)
+	// Build our replicated state machine.
+	fleet.BuildRsm(cctx(ctx), &fleetData)
 
 	// Setup our gRPC management API.
 	go func() {

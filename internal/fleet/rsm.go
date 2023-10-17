@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alphauslabs/juno/internal"
@@ -79,9 +80,16 @@ func NewRsm() *rsmT {
 	return &rsmT{set: map[string]map[string]struct{}{}}
 }
 
-// BuildSet builds the state machine to it's current state from our replicated log.
-func BuildSet(ctx context.Context, fd *FleetData) error {
-	defer func(begin time.Time) { glog.Infof("fn BuildSet took %v", time.Since(begin)) }(time.Now())
+// BuildRsm builds the state machine to it's current state from our replicated log.
+func BuildRsm(ctx context.Context, fd *FleetData) error {
+	defer func(begin time.Time) { glog.Infof("fn:BuildRsm took %v", time.Since(begin)) }(time.Now())
+
+	doneHb := make(chan error, 1)
+	nctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go BroadcastRebuildRsmWip(nctx, fd, doneHb)
+
+	time.Sleep(time.Millisecond * 500) // give time to propagate broadcast
 
 	b, _ := json.Marshal(internal.NewEvent(
 		struct{}{}, // unused
@@ -130,7 +138,7 @@ func BuildSet(ctx context.Context, fd *FleetData) error {
 		}
 
 		if len(missing) > 0 {
-			glog.Infof("missing=%v", missing)
+			glog.Infof("--> missing=%v", missing)
 			bo := gaxv2.Backoff{} // 30s
 			for i := 0; i < 10; i++ {
 				add := make(map[int]string)
@@ -178,14 +186,47 @@ func BuildSet(ctx context.Context, fd *FleetData) error {
 		} else {
 			// Update our replicated state machine.
 			for _, v := range vals {
-				fd.Set.Apply(v.Value)
+				fd.StateMachine.Apply(v.Value)
 			}
 
-			copy := fd.Set.Clone()
-			glog.Infof("clone=%+v", copy)
 			break // main
 		}
 	}
 
 	return nil
+}
+
+func BroadcastRebuildRsmWip(ctx context.Context, fd *FleetData, done chan error) {
+	ticker := time.NewTicker(time.Second)
+	defer func() {
+		ticker.Stop()
+		done <- nil
+	}()
+
+	var active int32
+	do := func() {
+		atomic.StoreInt32(&active, 1)
+		defer atomic.StoreInt32(&active, 0)
+		b, _ := json.Marshal(internal.NewEvent(
+			struct{}{},
+			EventSource,
+			CtrlBroadcastWipRebuildRsm,
+		))
+
+		fd.App.FleetOp.Broadcast(ctx, b)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		if atomic.LoadInt32(&active) == 1 {
+			continue
+		}
+
+		go do()
+	}
 }
