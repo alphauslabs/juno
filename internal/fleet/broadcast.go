@@ -158,6 +158,7 @@ func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, erro
 
 	// Update replicated state machine.
 	fd.StateMachine.Apply(data.Value)
+	atomic.AddInt64(&fd.SignalSetValue, 1)
 
 	return nil, nil
 }

@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	"log/slog"
 	"net"
 	"os"
@@ -200,7 +198,7 @@ func main() {
 		hedge.WithGroupSyncInterval(time.Second*5),
 		hedge.WithLeaderHandler(&fleetData, fleet.LeaderHandler),
 		hedge.WithBroadcastHandler(&fleetData, fleet.BroadcastHandler),
-		hedge.WithLogger(log.New(io.Discard, "", 0)),
+		// hedge.WithLogger(log.New(io.Discard, "", 0)),
 	)
 
 	done := make(chan error)

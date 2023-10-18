@@ -414,13 +414,6 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		},
 	})
 
-	var count int
-	if !in.broadcast { // leader
-		count = in.FleetData.StateMachine.Apply(value)
-	} else {
-		// TODO: Get the latest applied value.
-	}
-
 	b, _ = json.Marshal(internal.NewEvent(
 		Accept{ // reuse this struct
 			Round: out.Round + 1,
@@ -433,6 +426,11 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	// TODO: This is not a good idea; we could end
 	// up with a massive number of goroutines here.
 	go in.FleetData.App.FleetOp.Broadcast(ctx, b)
+
+	var count int
+	if !in.broadcast { // leader
+		count = in.FleetData.StateMachine.Apply(value)
+	}
 
 	commit = true // commit our round number (see defer)
 	return &ReachConsensusOutput{Key: in.Key, Value: in.Value, Count: count}, nil

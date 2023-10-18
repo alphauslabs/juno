@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"time"
 
 	"github.com/alphauslabs/juno/internal"
@@ -62,9 +63,10 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 
-		outb, _ := json.Marshal(out)
-		glog.Infof("direct: out=%v", string(outb))
-		return &v1.AddToSetResponse{Key: out.Key, Count: int64(out.Count)}, nil
+		return &v1.AddToSetResponse{
+			Key:   out.Key,
+			Count: int64(out.Count),
+		}, nil
 	default:
 		b, _ := json.Marshal(internal.NewEvent(
 			fleet.ReachConsensusInput{
@@ -76,18 +78,32 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 			fleet.CtrlLeaderFwdConsensus,
 		))
 
+		sigval := atomic.LoadInt64(&s.fd.SignalSetValue)
 		outb, err := fleet.SendToLeader(ctx, s.fd.App, b)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 
-		glog.Infof("fwd: out=%v", string(outb))
 		var out fleet.ReachConsensusOutput
 		err = json.Unmarshal(outb, &out)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 
-		return &v1.AddToSetResponse{Key: out.Key, Count: int64(out.Count)}, nil
+		// Naive way of telling we received the SetValue broadcast.
+		for {
+			sigval2 := atomic.LoadInt64(&s.fd.SignalSetValue)
+			if sigval2 != sigval {
+				break
+			} else {
+				time.Sleep(time.Millisecond * 1)
+			}
+		}
+
+		count := len(s.fd.StateMachine.Members(req.Key))
+		return &v1.AddToSetResponse{
+			Key:   out.Key,
+			Count: int64(count),
+		}, nil
 	}
 }
