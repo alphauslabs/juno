@@ -156,10 +156,8 @@ func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, erro
 		return nil, err
 	}
 
-	// Update our replicated state machine.
+	// Update replicated state machine.
 	fd.StateMachine.Apply(data.Value)
-	clone := fd.StateMachine.Clone()
-	glog.Infof("dbg: clone=%+v", clone)
 
 	return nil, nil
 }

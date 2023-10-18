@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"log/slog"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -75,18 +78,47 @@ func testClient() {
 
 	defer conn.Close()
 	client := v1.NewJunoClient(conn)
-	out, err := client.AddToSet(ctx, &v1.AddToSetRequest{
-		Key:   key,
-		Value: val,
-	})
 
-	if err != nil {
-		slog.Error("AddToSet failed:", "err", err)
-		return
+	if len(ss) == 4 {
+		slog.Info("start...")
+		key = ss[1]
+		val = ss[2]
+
+		n, err := strconv.Atoi(ss[3])
+		if err != nil {
+			slog.Error(err.Error())
+			return
+		}
+
+		for i := 0; i < n; i++ {
+			time.Sleep(time.Millisecond * 100)
+			out, err := client.AddToSet(ctx, &v1.AddToSetRequest{
+				Key:   key,
+				Value: val,
+			})
+
+			if err != nil {
+				slog.Error("AddToSet failed:", "err", err)
+				continue
+			}
+
+			outb, _ := json.Marshal(out)
+			slog.Info("out:", "val", string(outb))
+		}
+	} else {
+		out, err := client.AddToSet(ctx, &v1.AddToSetRequest{
+			Key:   key,
+			Value: val,
+		})
+
+		if err != nil {
+			slog.Error("AddToSet failed:", "err", err)
+			return
+		}
+
+		outb, _ := json.Marshal(out)
+		slog.Info("out:", "val", string(outb))
 	}
-
-	outb, _ := json.Marshal(out)
-	slog.Info("out:", "val", string(outb))
 }
 
 func grpcServe(ctx context.Context, fd *fleet.FleetData, done chan error) error {
@@ -165,9 +197,10 @@ func main() {
 		*flags.LockTable,
 		*flags.LockName,
 		"", // not using hedge's logtable
-		hedge.WithGroupSyncInterval(time.Second*10),
+		hedge.WithGroupSyncInterval(time.Second*5),
 		hedge.WithLeaderHandler(&fleetData, fleet.LeaderHandler),
 		hedge.WithBroadcastHandler(&fleetData, fleet.BroadcastHandler),
+		hedge.WithLogger(log.New(io.Discard, "", 0)),
 	)
 
 	done := make(chan error)

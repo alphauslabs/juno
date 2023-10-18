@@ -93,9 +93,6 @@ func getLastPaxosRound(ctx context.Context, fd *FleetData) (lastPaxosRoundOutput
 			return out, err
 		}
 
-		glog.Infof("meta: round=%v, updated=%v, committed=%v",
-			v.Round.Int64, v.Updated.Time.Format(time.RFC3339), v.Committed.Time.Format(time.RFC3339))
-
 		out.Round = v.Round.Int64
 		out.Value = internal.SpannerString(v.Value)
 		out.Committed = !v.Committed.IsNull()
@@ -272,28 +269,26 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	glog.Infof("round=%v, committed=%v, err=%v", out.Round, out.Committed, err)
 
 	if !out.Committed {
-		if !in.broadcast {
-			// This is our way of attempting to reset a stuck chain/round number.
-			if out.Value == "reset" {
-				in.FleetData.App.Client.ReadWriteTransaction(ctx,
-					func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-						var q strings.Builder
-						fmt.Fprintf(&q, "delete from %s ", *flags.Meta)
-						fmt.Fprintf(&q, "where id = 'chain' and round = %v", out.Round)
-						_, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
-						return err
-					},
-				)
-			} else {
-				writeMeta(ctx, writeMetaInput{
-					FleetData: in.FleetData,
-					Meta: metaT{
-						Id:    "chain",
-						Round: out.Round,
-						Value: "reset",
-					},
-				})
-			}
+		// This is our way of attempting to reset a stuck chain/round number.
+		if out.Value == "reset" {
+			in.FleetData.App.Client.ReadWriteTransaction(ctx,
+				func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+					var q strings.Builder
+					fmt.Fprintf(&q, "delete from %s ", *flags.Meta)
+					fmt.Fprintf(&q, "where id = 'chain' and round = %v", out.Round)
+					_, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
+					return err
+				},
+			)
+		} else {
+			writeMeta(ctx, writeMetaInput{
+				FleetData: in.FleetData,
+				Meta: metaT{
+					Id:    "chain",
+					Round: out.Round,
+					Value: "reset",
+				},
+			})
 		}
 
 		return nil, fmt.Errorf("Operation pending. Please try again later.")
@@ -419,6 +414,13 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		},
 	})
 
+	var count int
+	if !in.broadcast { // leader
+		count = in.FleetData.StateMachine.Apply(value)
+	} else {
+		// TODO: Get the latest applied value.
+	}
+
 	b, _ = json.Marshal(internal.NewEvent(
 		Accept{ // reuse this struct
 			Round: out.Round + 1,
@@ -433,5 +435,5 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	go in.FleetData.App.FleetOp.Broadcast(ctx, b)
 
 	commit = true // commit our round number (see defer)
-	return &ReachConsensusOutput{Key: in.Key, Value: in.Value}, nil
+	return &ReachConsensusOutput{Key: in.Key, Value: in.Value, Count: count}, nil
 }

@@ -84,39 +84,43 @@ func NewRsm() *rsmT {
 func BuildRsm(ctx context.Context, fd *FleetData) error {
 	defer func(begin time.Time) { glog.Infof("fn:BuildRsm took %v", time.Since(begin)) }(time.Now())
 
-	doneHb := make(chan error, 1)
+	paused := make(chan struct{}, 1)
 	nctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go BroadcastRebuildRsmWip(nctx, fd, doneHb)
+	go BroadcastRebuildRsmWip(nctx, fd, paused)
 
-	time.Sleep(time.Millisecond * 500) // give time to propagate broadcast
-
-	b, _ := json.Marshal(internal.NewEvent(
-		struct{}{}, // unused
-		EventSource,
-		CtrlLeaderGetLatestRound,
-	))
-
-	outb, err := SendToLeader(ctx, fd.App, b, SendToLeaderExtra{RetryCount: 1})
-	if err != nil {
-		glog.Errorf("SendToLeader failed: %v", err)
-		return err
-	}
-
-	var out lastPaxosRoundOutput
-	err = json.Unmarshal(outb, &out)
-	if err != nil {
-		glog.Errorf("Unmarshal failed: %v", err)
-		return err
-	}
-
-	glog.Infof("latest=%+v", out)
+	<-paused // wait for the signal that others have acknowledged pause
 
 	var retries int
 	for {
 		retries++
 		if retries >= 3 {
 			break
+		}
+
+		b, _ := json.Marshal(internal.NewEvent(
+			struct{}{}, // unused
+			EventSource,
+			CtrlLeaderGetLatestRound,
+		))
+
+		outb, err := SendToLeader(ctx, fd.App, b, SendToLeaderExtra{RetryCount: 1})
+		if err != nil {
+			glog.Errorf("SendToLeader failed: %v", err)
+			return err
+		}
+
+		var lpr lastPaxosRoundOutput
+		err = json.Unmarshal(outb, &lpr)
+		if err != nil {
+			glog.Errorf("Unmarshal failed: %v", err)
+			return err
+		}
+
+		glog.Infof("latest=%+v", lpr)
+		round := int(lpr.Round)
+		if !lpr.Committed {
+			round--
 		}
 
 		ins := make(map[int]struct{})
@@ -131,7 +135,7 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 		}
 
 		missing := []int{}
-		for i := 1; i <= int(out.Round); i++ {
+		for i := 1; i <= round; i++ {
 			if _, ok := ins[i]; !ok {
 				missing = append(missing, i)
 			}
@@ -163,25 +167,33 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 				}
 
 				if len(missing) != len(add) {
-					glog.Errorf("not matched, retry: missing=%v, add=%+v", missing, add)
-					time.Sleep(bo.Pause())
-				} else {
-					wmeta := []metaT{}
-					for k, v := range add {
-						wmeta = append(wmeta, metaT{
-							Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
-							Round: int64(k),
-							Value: v,
-						})
+					sleep := true
+					if len(missing) == 1 && !lpr.Committed && len(add) == 0 {
+						sleep = false // skip
 					}
 
-					writeNodeMeta(ctx, &writeNoteMetaInput{
-						FleetData: fd,
-						Meta:      wmeta,
-					})
-
-					break // don't forget
+					if sleep {
+						glog.Errorf("not matched, retry: missing=%v, add=%+v", missing, add)
+						time.Sleep(bo.Pause())
+						continue
+					}
 				}
+
+				wmeta := []metaT{}
+				for k, v := range add {
+					wmeta = append(wmeta, metaT{
+						Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
+						Round: int64(k),
+						Value: v,
+					})
+				}
+
+				writeNodeMeta(ctx, &writeNoteMetaInput{
+					FleetData: fd,
+					Meta:      wmeta,
+				})
+
+				break // don't forget
 			}
 		} else {
 			// Update our replicated state machine.
@@ -196,13 +208,13 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 	return nil
 }
 
-func BroadcastRebuildRsmWip(ctx context.Context, fd *FleetData, done chan error) {
+func BroadcastRebuildRsmWip(ctx context.Context, fd *FleetData, paused chan struct{}) {
 	ticker := time.NewTicker(time.Second)
-	defer func() {
-		ticker.Stop()
-		done <- nil
-	}()
+	first := make(chan struct{}, 1)
+	first <- struct{}{}
+	defer ticker.Stop()
 
+	var notifyPaused bool
 	var active int32
 	do := func() {
 		atomic.StoreInt32(&active, 1)
@@ -213,13 +225,27 @@ func BroadcastRebuildRsmWip(ctx context.Context, fd *FleetData, done chan error)
 			CtrlBroadcastWipRebuildRsm,
 		))
 
-		fd.App.FleetOp.Broadcast(ctx, b)
+		outs := fd.App.FleetOp.Broadcast(ctx, b)
+		if len(outs) == 1 {
+			paused <- struct{}{}
+			notifyPaused = true
+		}
+
+		if !notifyPaused && len(outs) > 1 {
+			for _, out := range outs {
+				if out.Id != fd.App.FleetOp.HostPort() {
+					paused <- struct{}{}
+					notifyPaused = true
+				}
+			}
+		}
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-first:
 		case <-ticker.C:
 		}
 
