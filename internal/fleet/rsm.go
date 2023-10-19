@@ -99,9 +99,10 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 	<-paused // wait for the signal that others have acknowledged pause
 
 	retries := -1
+	var end bool
 	for {
 		retries++
-		if retries >= 3 {
+		if retries >= 10 || end {
 			break
 		}
 
@@ -148,10 +149,16 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 			}
 		}
 
-		if len(missing) > 0 {
+		switch {
+		case len(missing) > 0:
 			glog.Infof("--> missing=%v", missing)
 			bo := gaxv2.Backoff{} // 30s
+			var endIn bool
 			for i := 0; i < 10; i++ {
+				if endIn {
+					break
+				}
+
 				add := make(map[int]string)
 				b, _ = json.Marshal(internal.NewEvent(
 					LearnValuesInput{Rounds: missing},
@@ -186,6 +193,7 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 					}
 				}
 
+				endIn = true
 				wmeta := []metaT{}
 				for k, v := range add {
 					wmeta = append(wmeta, metaT{
@@ -199,20 +207,17 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 					FleetData: fd,
 					Meta:      wmeta,
 				})
-
-				break // don't forget
 			}
-		} else {
+		default:
 			// Update our replicated state machine.
 			if retries > 0 {
 				fd.StateMachine.Reset()
 			}
 
+			end = true
 			for _, v := range vals {
 				fd.StateMachine.Apply(v.Value)
 			}
-
-			break // main
 		}
 	}
 
