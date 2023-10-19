@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"github.com/alphauslabs/juno/internal"
 	"github.com/alphauslabs/juno/internal/flags"
@@ -87,11 +87,7 @@ func doBroadcastPaxosPhase1Prepare(fd *FleetData, e *cloudevents.Event) ([]byte,
 
 func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	var data Accept
-	err := json.Unmarshal(e.Data(), &data)
-	if err != nil {
-		return nil, err
-	}
-
+	json.Unmarshal(e.Data(), &data)
 	out := Accepted{
 		Round:    data.Round,
 		AcceptId: data.AcceptId,
@@ -136,12 +132,8 @@ func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, 
 
 func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 	var data Accept // reuse this struct for the broadcast
-	err := json.Unmarshal(e.Data(), &data)
-	if err != nil {
-		return nil, err
-	}
-
-	err = writeMeta(context.Background(), writeMetaInput{
+	json.Unmarshal(e.Data(), &data)
+	err := writeMeta(context.Background(), writeMetaInput{
 		FleetData: fd,
 		Meta: metaT{
 			Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
@@ -154,9 +146,37 @@ func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, erro
 		return nil, err
 	}
 
-	// Update replicated state machine.
-	fd.StateMachine.Apply(data.Value)
-	atomic.AddInt64(&fd.SignalSetValue, 1)
+	diff := data.Round - atomic.LoadInt64(&fd.SetValueLastRound)
+	switch {
+	case diff > 1: // for later
+		glog.Infof("__saveForLater: round=%v, value=%v", data.Round, data.Value)
+		fd.muSetValue.Lock()
+		fd.SetValueTempPipe[int(data.Round)] = data.Value
+		fd.muSetValue.Unlock()
+	case diff == 1: // expected round
+		fd.StateMachine.Apply(data.Value)
+		fd.muSetValue.Lock()
+		copy := fd.SetValueTempPipe
+		fd.SetValueTempPipe = map[int]string{} // clear
+		fd.muSetValue.Unlock()
+
+		lastRound := data.Round
+		rounds := []int{}
+		if len(copy) > 0 {
+			for k := range copy {
+				rounds = append(rounds, k)
+			}
+
+			sort.Ints(rounds)
+			lastRound = int64(rounds[len(rounds)-1])
+			for _, n := range rounds {
+				fd.StateMachine.Apply(copy[n])
+			}
+		}
+
+		glog.Infof("__applyNow: round=%v, value=%v, also=%v", data.Round, data.Value, rounds)
+		atomic.StoreInt64(&fd.SetValueLastRound, lastRound)
+	}
 
 	return nil, nil
 }
@@ -170,14 +190,8 @@ type LearnValuesOutput struct {
 }
 
 func doBroadcastPaxosLearnValues(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
-	defer func(begin time.Time) { glog.Infof("doBroadcastPaxosLearnValues took %v", time.Since(begin)) }(time.Now())
-
 	var data LearnValuesInput
-	err := json.Unmarshal(e.Data(), &data)
-	if err != nil {
-		return nil, err
-	}
-
+	json.Unmarshal(e.Data(), &data)
 	rounds := []string{}
 	for _, i := range data.Rounds {
 		rounds = append(rounds, fmt.Sprintf("%v", i))

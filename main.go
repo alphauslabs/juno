@@ -190,8 +190,9 @@ func main() {
 
 	defer app.Client.Close()
 	fleetData := fleet.FleetData{
-		App:          app,
-		StateMachine: fleet.NewRsm(),
+		App:              app,
+		StateMachine:     fleet.NewRsm(),
+		SetValueTempPipe: map[int]string{},
 	}
 
 	fleetData.BuildRsmWip = timedoff.New(time.Second*2, &timedoff.CallbackT{

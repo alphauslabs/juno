@@ -223,6 +223,7 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 			end = true
 			for _, v := range vals {
 				fd.StateMachine.Apply(v.Value)
+				atomic.StoreInt64(&fd.SetValueLastRound, v.Round)
 			}
 		}
 	}

@@ -78,7 +78,7 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 			fleet.CtrlLeaderFwdConsensus,
 		))
 
-		sigval := atomic.LoadInt64(&s.fd.SignalSetValue)
+		lr := atomic.LoadInt64(&s.fd.SetValueLastRound)
 		outb, err := fleet.SendToLeader(ctx, s.fd.App, b)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, err.Error())
@@ -93,8 +93,8 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 		// Naive way of telling we received the SetValue broadcast.
 		var attempts int
 		for {
-			sigval2 := atomic.LoadInt64(&s.fd.SignalSetValue)
-			if sigval2 != sigval {
+			lr2 := atomic.LoadInt64(&s.fd.SetValueLastRound)
+			if lr != lr2 {
 				break
 			} else {
 				time.Sleep(time.Millisecond * 1)

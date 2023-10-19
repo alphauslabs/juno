@@ -431,6 +431,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	var count int
 	if !in.fwd { // leader
 		count = in.FleetData.StateMachine.Apply(value)
+		atomic.StoreInt64(&in.FleetData.SetValueLastRound, out.Round+1)
 	}
 
 	commit = true // commit our round number (see defer)

@@ -22,7 +22,9 @@ type FleetData struct {
 	BuildRsmWip *timedoff.TimedOff // pause ops when active
 	BuildRsmOn  int64              // non-zero means someone is rebuilding their RSM
 
-	SignalSetValue int64 // increasing, indicates the SetValue broadcast has arrived
+	SetValueLastRound int64
+	SetValueTempPipe  map[int]string
+	muSetValue        sync.Mutex
 
-	consensusMutex sync.Mutex // makes calling ReachConsensus synchronous
+	consensusMutex sync.Mutex // makes calling ReachConsensus synchronous; leader only
 }
