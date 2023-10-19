@@ -235,6 +235,9 @@ func main() {
 	// Build our replicated state machine.
 	fleet.BuildRsm(cctx(ctx), &fleetData)
 
+	// Monitor any drift in our replicated log.
+	go fleet.MonitorRsmDrift(cctx(ctx), &fleetData)
+
 	// Setup our gRPC management API.
 	go func() {
 		glog.Infof("serving grpc at :%v", *flags.GrpcPort)

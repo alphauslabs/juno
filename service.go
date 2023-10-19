@@ -91,12 +91,17 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 		}
 
 		// Naive way of telling we received the SetValue broadcast.
+		var attempts int
 		for {
 			sigval2 := atomic.LoadInt64(&s.fd.SignalSetValue)
 			if sigval2 != sigval {
 				break
 			} else {
 				time.Sleep(time.Millisecond * 1)
+				attempts++
+				if attempts >= 500 { // 500ms
+					return nil, status.Errorf(codes.Internal, "Cannot get value.")
+				}
 			}
 		}
 

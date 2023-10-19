@@ -56,8 +56,8 @@ func (s *rsmT) Members(key string) []string {
 	return m
 }
 
-// Reset deletes the map under the input key.
-func (s *rsmT) Reset(key string) {
+// Delete deletes the map under the input key.
+func (s *rsmT) Delete(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.set, key)
@@ -73,6 +73,13 @@ func (s *rsmT) Clone() map[string]map[string]struct{} {
 
 	s.mu.Unlock()
 	return copy
+}
+
+// Reset resets the underlying map.
+func (s *rsmT) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.set = map[string]map[string]struct{}{}
 }
 
 // NewRsm returns an instance of our replicated state machine set.
@@ -91,7 +98,7 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 
 	<-paused // wait for the signal that others have acknowledged pause
 
-	var retries int
+	retries := -1
 	for {
 		retries++
 		if retries >= 3 {
@@ -197,6 +204,10 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 			}
 		} else {
 			// Update our replicated state machine.
+			if retries > 0 {
+				fd.StateMachine.Reset()
+			}
+
 			for _, v := range vals {
 				fd.StateMachine.Apply(v.Value)
 			}
@@ -246,6 +257,73 @@ func BroadcastRebuildRsmWip(ctx context.Context, fd *FleetData, paused chan stru
 		case <-ctx.Done():
 			return
 		case <-first:
+		case <-ticker.C:
+		}
+
+		if atomic.LoadInt32(&active) == 1 {
+			continue
+		}
+
+		go do()
+	}
+}
+
+func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
+	ticker := time.NewTicker(time.Second * 10)
+	defer ticker.Stop()
+
+	var active int32
+	do := func() {
+		atomic.StoreInt32(&active, 1)
+		defer atomic.StoreInt32(&active, 0)
+
+		b, _ := json.Marshal(internal.NewEvent(
+			struct{}{}, // unused
+			EventSource,
+			CtrlLeaderGetLatestRound,
+		))
+
+		outb, err := SendToLeader(ctx, fd.App, b, SendToLeaderExtra{RetryCount: 1})
+		if err != nil {
+			glog.Errorf("SendToLeader failed: %v", err)
+			return
+		}
+
+		var lpr lastPaxosRoundOutput
+		err = json.Unmarshal(outb, &lpr)
+		if err != nil {
+			glog.Errorf("Unmarshal failed: %v", err)
+			return
+		}
+
+		glog.Infof("[%v] MonitorRsmDrift: latest=%+v", fd.App.FleetOp.HostPort(), lpr)
+		round := int(lpr.Round)
+		if !lpr.Committed {
+			round--
+		}
+
+		ins := make(map[int]struct{})
+		vals, err := getValues(ctx, fd)
+		if err != nil {
+			glog.Errorf("getValues failed: %v", err)
+			return
+		}
+
+		for _, v := range vals {
+			ins[int(v.Round)] = struct{}{}
+		}
+
+		for i := 1; i < round; i++ { // we are more interested in the in-betweens
+			if _, ok := ins[i]; !ok {
+				glog.Infof("[%v] _____missing [%v] in our logs, todo: restart?", fd.App.FleetOp.HostPort())
+			}
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
 		case <-ticker.C:
 		}
 
