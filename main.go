@@ -166,6 +166,16 @@ func main() {
 	}
 
 	if *flags.Id < 1 {
+		// See if we are deployed as statefulset.
+		hn, _ := os.Hostname()
+		ss := strings.Split(hn, "-")
+		if len(ss) == 2 && ss[0] == "juno" {
+			n, _ := strconv.ParseInt(ss[1], 10, 64)
+			*flags.Id = int(n + 1)
+		}
+	}
+
+	if *flags.Id < 1 {
 		glog.Errorf("invalid id [%v]", *flags.Id)
 		return
 	}
