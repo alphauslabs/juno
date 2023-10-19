@@ -11,6 +11,7 @@ import (
 
 	"github.com/alphauslabs/juno/internal"
 	"github.com/alphauslabs/juno/internal/flags"
+	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
 	gaxv2 "github.com/googleapis/gax-go/v2"
 )
@@ -166,7 +167,12 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 					CtrlBroadcastPaxosLearnValues,
 				))
 
-				outs := fd.App.FleetOp.Broadcast(ctx, b)
+				var skipSelf bool
+				if len(fd.App.FleetOp.Members()) > 1 {
+					skipSelf = true
+				}
+
+				outs := fd.App.FleetOp.Broadcast(ctx, b, hedge.BroadcastArgs{SkipSelf: skipSelf})
 				for _, out := range outs {
 					var o []LearnValuesOutput
 					err = json.Unmarshal(out.Reply, &o)
@@ -241,7 +247,12 @@ func broadcastRebuildRsmHeartbeat(ctx context.Context, fd *FleetData, paused cha
 			CtrlBroadcastWipRebuildRsm,
 		))
 
-		outs := fd.App.FleetOp.Broadcast(ctx, b)
+		var skipSelf bool
+		if len(fd.App.FleetOp.Members()) > 1 {
+			skipSelf = true
+		}
+
+		outs := fd.App.FleetOp.Broadcast(ctx, b, hedge.BroadcastArgs{SkipSelf: skipSelf})
 		if len(outs) == 1 {
 			paused <- struct{}{}
 			notifyPaused = true

@@ -401,8 +401,6 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	// We have agreed on a value. Broadcast to all.
 	// NOTE: We assume that the caller for this is always the leader, direct or broadcast.
 	// This write is to ensure that the leader will always have the latest agreed value.
-	// The broadcast below will be for all the nodes, including the leader, which means a
-	// double-write for the leader node, which is okay for now.
 	writeMeta(ctx, writeMetaInput{
 		FleetData: in.FleetData,
 		Meta: metaT{
@@ -421,9 +419,15 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		CtrlBroadcastPaxosSetValue,
 	))
 
-	// TODO: This is not a good idea; we could end
-	// up with a massive number of goroutines here.
-	go in.FleetData.App.FleetOp.Broadcast(ctx, b)
+	// TODO: Not a good idea; we could end up with a massive number of goroutines here.
+	go func() {
+		var skipSelf bool
+		if len(in.FleetData.App.FleetOp.Members()) > 1 {
+			skipSelf = true
+		}
+
+		in.FleetData.App.FleetOp.Broadcast(ctx, b, hedge.BroadcastArgs{SkipSelf: skipSelf})
+	}()
 
 	var count int
 	if !in.broadcast { // leader
