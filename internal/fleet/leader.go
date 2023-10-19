@@ -62,7 +62,7 @@ func doLeaderFwdConsensus(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
 
 	ctx := context.Background()
 	data.FleetData = fd
-	data.broadcast = true
+	data.fwd = true
 	out, err := ReachConsensus(ctx, &data)
 	outb, _ := json.Marshal(out)
 	return outb, err

@@ -243,7 +243,7 @@ type ReachConsensusInput struct {
 	Key       string     `json:"key,omitempty"`
 	Value     string     `json:"value,omitempty"`
 
-	broadcast bool `json:"-"` // so we know it's called via broadcast
+	fwd bool `json:"-"` // so we know it's called via forwarding
 }
 
 type ReachConsensusOutput struct {
@@ -430,7 +430,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	}()
 
 	var count int
-	if !in.broadcast { // leader
+	if !in.fwd { // leader
 		count = in.FleetData.StateMachine.Apply(value)
 	}
 
