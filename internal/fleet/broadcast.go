@@ -135,8 +135,6 @@ func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, 
 }
 
 func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
-	defer func(begin time.Time) { glog.Infof("doBroadcastPaxosSetValue took %v", time.Since(begin)) }(time.Now())
-
 	var data Accept // reuse this struct for the broadcast
 	err := json.Unmarshal(e.Data(), &data)
 	if err != nil {

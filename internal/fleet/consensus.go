@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/alphauslabs/juno/internal"
@@ -215,13 +214,13 @@ func writeNodeMeta(ctx context.Context, in *writeNoteMetaInput) error {
 	// Actual spanner db writes.
 	var sperrs []error
 	func() {
-		var n int
-		defer func(begin time.Time, n *int) {
-			glog.Infof("[spanner] %v written to %v, took %v", *n, *flags.Meta, time.Since(begin))
-		}(time.Now(), &n)
+		// var n int
+		// defer func(begin time.Time, n *int) {
+		// 	glog.Infof("[spanner] %v written to %v, took %v", *n, *flags.Meta, time.Since(begin))
+		// }(time.Now(), &n)
 
 		for _, recs := range m {
-			n += len(recs)
+			// n += len(recs)
 			_, err := in.FleetData.App.Client.Apply(ctx, recs)
 			if err != nil {
 				glog.Errorf("spanner.Apply failed: %v", err)
