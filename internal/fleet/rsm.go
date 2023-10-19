@@ -297,7 +297,7 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 			return
 		}
 
-		glog.Infof("MonitorRsmDrift: latest=%+v, leader=%v, me=%v",
+		glog.Infof("fn:MonitorRsmDrift: latest=%+v, leader=%v, me=%v",
 			lpr,
 			atomic.LoadInt64(&fd.App.LeaderId),
 			*flags.Id,
@@ -321,8 +321,13 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 
 		for i := 1; i < round; i++ { // we are more interested in the in-betweens
 			if _, ok := ins[i]; !ok {
-				glog.Infof("[%v] _____missing [%v] in our logs, todo: restart?", fd.App.FleetOp.HostPort(), i)
-				payload := fmt.Sprintf("[%v] missing [%v] in our rsm", fd.App.FleetOp.HostPort(), i)
+				glog.Infof("[%v] _____missing [%v] in our rsm", fd.App.FleetOp.HostPort(), i)
+				payload := fmt.Sprintf("[id%v/%v] missing [%v] in our rsm",
+					*flags.Id,
+					atomic.LoadInt64(&fd.App.LeaderId),
+					i,
+				)
+
 				internal.TraceSlack(payload, "missing rsm")
 				break
 			}
