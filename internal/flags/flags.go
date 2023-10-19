@@ -2,6 +2,7 @@ package flags
 
 import (
 	"flag"
+	"os"
 )
 
 var (
@@ -15,4 +16,5 @@ var (
 	Meta      = flag.String("meta", "juno_meta", "Spanner table for metadata")
 	GrpcPort  = flag.String("grpcport", "8080", "Port number for gRPC")
 	FleetPort = flag.String("fleetport", "8081", "Port number for fleet management")
+	Slack     = flag.String("slack", os.Getenv("SLACK_TRACEME"), "Slack endpoint for notifications")
 )

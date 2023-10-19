@@ -315,7 +315,10 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 
 		for i := 1; i < round; i++ { // we are more interested in the in-betweens
 			if _, ok := ins[i]; !ok {
-				glog.Infof("[%v] _____missing [%v] in our logs, todo: restart?", fd.App.FleetOp.HostPort())
+				glog.Infof("[%v] _____missing [%v] in our logs, todo: restart?", fd.App.FleetOp.HostPort(), i)
+				payload := fmt.Sprintf("[%v] missing [%v] in our rsm", fd.App.FleetOp.HostPort(), i)
+				internal.TraceSlack(payload, "missing rsm")
+				break
 			}
 		}
 	}
