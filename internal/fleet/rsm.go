@@ -94,7 +94,7 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 	paused := make(chan struct{}, 1)
 	nctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go BroadcastRebuildRsmWip(nctx, fd, paused)
+	go broadcastRebuildRsmHeartbeat(nctx, fd, paused)
 
 	<-paused // wait for the signal that others have acknowledged pause
 
@@ -219,7 +219,7 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 	return nil
 }
 
-func BroadcastRebuildRsmWip(ctx context.Context, fd *FleetData, paused chan struct{}) {
+func broadcastRebuildRsmHeartbeat(ctx context.Context, fd *FleetData, paused chan struct{}) {
 	ticker := time.NewTicker(time.Second)
 	first := make(chan struct{}, 1)
 	first <- struct{}{}
@@ -268,6 +268,7 @@ func BroadcastRebuildRsmWip(ctx context.Context, fd *FleetData, paused chan stru
 	}
 }
 
+// MonitorRsmDrift monitors our local replicated log of missing indeces.
 func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 	ticker := time.NewTicker(time.Second * 10)
 	defer ticker.Stop()
