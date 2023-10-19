@@ -296,7 +296,12 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 			return
 		}
 
-		glog.Infof("[%v] MonitorRsmDrift: latest=%+v", fd.App.FleetOp.HostPort(), lpr)
+		glog.Infof("MonitorRsmDrift: latest=%+v, leader=%v, me=%v",
+			lpr,
+			atomic.LoadInt64(&fd.App.LeaderId),
+			*flags.Id,
+		)
+
 		round := int(lpr.Round)
 		if !lpr.Committed {
 			round--

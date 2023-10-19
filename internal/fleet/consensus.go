@@ -110,8 +110,6 @@ type RoundInfo struct {
 
 // getValues gets all values for a specific node to apply to its internal rsm.
 func getValues(ctx context.Context, fd *FleetData) ([]RoundInfo, error) {
-	defer func(begin time.Time) { glog.Infof("getValues took %v", time.Since(begin)) }(time.Now())
-
 	out := []RoundInfo{}
 	var q strings.Builder
 	fmt.Fprintf(&q, "select round, value from %s ", *flags.Meta)
