@@ -265,26 +265,15 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	out, err := getLastPaxosRound(ctx, in.FleetData)
 	if !out.Committed {
 		// This is our way of attempting to reset a stuck chain/round number.
-		if out.Value == "reset" {
-			in.FleetData.App.Client.ReadWriteTransaction(ctx,
-				func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-					var q strings.Builder
-					fmt.Fprintf(&q, "delete from %s ", *flags.Meta)
-					fmt.Fprintf(&q, "where id = 'chain' and round = %v", out.Round)
-					_, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
-					return err
-				},
-			)
-		} else {
-			writeMeta(ctx, writeMetaInput{
-				FleetData: in.FleetData,
-				Meta: metaT{
-					Id:    "chain",
-					Round: out.Round,
-					Value: "reset",
-				},
-			})
-		}
+		in.FleetData.App.Client.ReadWriteTransaction(ctx,
+			func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+				var q strings.Builder
+				fmt.Fprintf(&q, "delete from %s ", *flags.Meta)
+				fmt.Fprintf(&q, "where id = 'chain' and round = %v", out.Round)
+				_, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
+				return err
+			},
+		)
 
 		return nil, fmt.Errorf("Operation pending. Please try again later.")
 	}
