@@ -263,8 +263,6 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	defer in.FleetData.consensusMutex.Unlock()
 
 	out, err := getLastPaxosRound(ctx, in.FleetData)
-	glog.Infof("round=%v, committed=%v, err=%v", out.Round, out.Committed, err)
-
 	if !out.Committed {
 		// This is our way of attempting to reset a stuck chain/round number.
 		if out.Value == "reset" {
@@ -365,19 +363,13 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 				continue // skip failures
 			}
 
-			glog.Infof("reply=%v", string(m.Reply))
 			var accept Accepted
-			err := json.Unmarshal(m.Reply, &accept)
-			if err != nil {
-				glog.Errorf("Unmarshal failed: %v", err)
-				continue
-			}
-
+			json.Unmarshal(m.Reply, &accept)
 			if accept.Error == nil { // accepted
 				got++
 			}
 
-			glog.Infof("got=%v, majority=%v", got, majority)
+			glog.Infof("got=%v, majority=%v, reply=%v", got, majority, string(m.Reply))
 			if got >= majority { // quorum
 				return
 			}
