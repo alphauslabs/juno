@@ -49,9 +49,12 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 		}
 	}
 
+	var out *fleet.ReachConsensusOutput
+	var err error
+
 	switch {
 	case fleet.IsLeader(s.fd):
-		out, err := fleet.ReachConsensus(ctx, &fleet.ReachConsensusInput{
+		out, err = fleet.ReachConsensus(ctx, &fleet.ReachConsensusInput{
 			FleetData: s.fd,
 			CmdType:   fleet.CmdTypeAddToSet,
 			Key:       req.Key,
@@ -62,10 +65,6 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 
-		return &v1.AddToSetResponse{
-			Key:   out.Key,
-			Count: int64(out.Count),
-		}, nil
 	default:
 		b, _ := json.Marshal(internal.NewEvent(
 			fleet.ReachConsensusInput{
@@ -82,31 +81,34 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 
-		var out fleet.ReachConsensusOutput
-		err = json.Unmarshal(outb, &out)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-
-		for {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-
-			s.fd.SetValueMtx.Lock()
-			copy, ok := s.fd.SetValueHistory[int(out.Round)]
-			s.fd.SetValueMtx.Unlock()
-			if ok && copy.Applied {
-				break
-			}
-
-			time.Sleep(time.Millisecond * 1)
-		}
-
-		count := len(s.fd.StateMachine.Members(req.Key))
-		return &v1.AddToSetResponse{
-			Key:   out.Key,
-			Count: int64(count),
-		}, nil
+		json.Unmarshal(outb, &out)
 	}
+
+	limit := 5   // 5s max retry limit
+	attempts = 0 // reset
+	for {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		s.fd.SetValueMtx.Lock()
+		copy, ok := s.fd.SetValueHistory[int(out.Round)]
+		s.fd.SetValueMtx.Unlock()
+		if ok && copy.Applied {
+			break
+		}
+
+		time.Sleep(time.Millisecond * 1)
+		attempts++
+		if attempts > 0 && (attempts%1000 == 0) {
+			glog.Infof("checkpoint: Cannot get value for round %v.", out.Round)
+			limit--
+			if limit <= 0 {
+				return nil, status.Errorf(codes.Internal, "Cannot get value for round %v.", out.Round)
+			}
+		}
+	}
+
+	count := len(s.fd.StateMachine.Members(req.Key))
+	return &v1.AddToSetResponse{Key: out.Key, Count: int64(count)}, nil
 }

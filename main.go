@@ -180,7 +180,7 @@ func main() {
 		return
 	}
 
-	app := &appdata.AppData{}
+	app := &appdata.AppData{TerminateCh: make(chan struct{})}
 	var err error
 	ctx, cancel := context.WithCancel(context.Background())
 	app.Client, err = spanner.NewClient(cctx(ctx), *flags.Database)
@@ -263,8 +263,14 @@ func main() {
 	go func() {
 		sigch := make(chan os.Signal)
 		signal.Notify(sigch, syscall.SIGINT, syscall.SIGTERM)
-		glog.Infof("signal: %v", <-sigch)
-		cancel()
+		select {
+		case m := <-sigch:
+			glog.Infof("signal: %v", m)
+		case <-app.TerminateCh:
+			glog.Infof("quit: %v", time.Now().Format(time.RFC3339))
+		}
+
+		cancel() // initiate termination sequence regardless of source
 	}()
 
 	<-done

@@ -152,15 +152,10 @@ func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, erro
 	diff := data.Round - atomic.LoadInt64(&fd.SetValueLastRound)
 	switch {
 	case diff > 1: // for later
-		glog.Infof("__saveForLater: round=%v, value=%v, diff=%v", data.Round, data.Value, diff)
-		fd.SetValueMtx.Lock()
-		fd.SetValueHistory[int(data.Round)] = &SetValueHistoryT{Value: data.Value}
-		fd.SetValueMtx.Unlock()
-
-		// Try to get missing values.
-		glog.Infof("__start:BuildRsm from broadcast")
-		BuildRsm(context.Background(), fd, true)
-		glog.Infof("__end:BuildRsm from broadcast")
+		// For now, if we have a missing round in our rsm, we terminate.
+		// Allow the startup sequence to rebuild our local rsm.
+		glog.Infof("rsm behind, quit: round=%v, value=%v, diff=%v", data.Round, data.Value, diff)
+		fd.App.TerminateCh <- struct{}{} // terminate self
 	case diff == 1: // expected round
 		fd.StateMachine.Apply(data.Value)
 		atomic.StoreInt64(&fd.SetValueLastRound, data.Round)

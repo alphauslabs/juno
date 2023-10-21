@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alphauslabs/juno/internal/flags"
+	"github.com/golang/glog"
 )
 
 type SlackAttachment struct {
@@ -56,6 +57,7 @@ func (sn *SlackNotify) SimpleNotify(slackUrl string) error {
 	}
 	_, err = hc.Do(r)
 	if err != nil {
+		glog.Errorf("http.Do failed: %v", err)
 		return err
 	}
 
@@ -67,6 +69,10 @@ func (sn *SlackNotify) SimpleNotify(slackUrl string) error {
 // [1..] - channel(s) override
 func TraceSlack(payload, title string, args ...string) {
 	channel := *flags.Slack
+	if channel == "" {
+		return
+	}
+
 	t := title
 	if t == "" {
 		t = "juno error"

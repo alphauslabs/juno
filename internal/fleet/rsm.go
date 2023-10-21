@@ -103,11 +103,12 @@ func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
 		<-paused // wait for the signal that others have acknowledged pause
 	}
 
+	limit := 20
 	retries := -1
 	var end bool
 	for {
 		retries++
-		if retries >= 20 || end {
+		if retries >= limit || end {
 			break
 		}
 
@@ -125,12 +126,12 @@ func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
 
 		var lpr lastPaxosRoundOutput
 		json.Unmarshal(outb, &lpr)
-
-		glog.Infof("[retry=%v] latest=%+v", retries, lpr)
 		round := int(lpr.Round)
 		if !lpr.Committed {
 			round--
 		}
+
+		glog.Infof("[retry=%v] raw=%+v, latest=%v, committed=%v", retries, lpr, round, lpr.Committed)
 
 		ins := make(map[int]struct{})
 		vals, err := getValues(ctx, fd)
@@ -155,7 +156,7 @@ func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
 			glog.Infof("[retry=%v] missing=%v", retries, missing)
 			bo := gaxv2.Backoff{} // 30s
 			var endIn bool
-			for i := 0; i < 10; i++ {
+			for i := 0; i < limit; i++ {
 				if endIn {
 					break
 				}
@@ -215,6 +216,12 @@ func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
 			fd.StateMachine.Reset()
 			rounds := []int64{}
 			for _, v := range vals {
+				if v.Round >= int64(round) {
+					if !lpr.Committed {
+						continue
+					}
+				}
+
 				fd.StateMachine.Apply(v.Value)
 				atomic.StoreInt64(&fd.SetValueLastRound, v.Round)
 				rounds = append(rounds, v.Round)
@@ -286,6 +293,7 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 	ticker := time.NewTicker(time.Second * 10)
 	defer ticker.Stop()
 
+	var globalQuit int32
 	var active int32
 	do := func() {
 		atomic.StoreInt32(&active, 1)
@@ -304,18 +312,7 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 		}
 
 		var lpr lastPaxosRoundOutput
-		err = json.Unmarshal(outb, &lpr)
-		if err != nil {
-			glog.Errorf("Unmarshal failed: %v", err)
-			return
-		}
-
-		glog.Infof("fn:MonitorRsmDrift: latest=%+v, leader=%v, me=%v",
-			lpr,
-			atomic.LoadInt64(&fd.App.LeaderId),
-			*flags.Id,
-		)
-
+		json.Unmarshal(outb, &lpr)
 		round := int(lpr.Round)
 		if !lpr.Committed {
 			round--
@@ -332,6 +329,14 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 			ins[int(v.Round)] = struct{}{}
 		}
 
+		glog.Infof("fn:MonitorRsmDrift: latest=%+v, committed=%v, leader=%v, me=%v, test(len(set[1]))=%v",
+			round,
+			lpr.Committed,
+			atomic.LoadInt64(&fd.App.LeaderId),
+			*flags.Id,
+			len(fd.StateMachine.Members("1")),
+		)
+
 		for i := 1; i < round; i++ { // we are more interested in the in-betweens
 			if _, ok := ins[i]; !ok {
 				glog.Infof("[%v] _____missing [%v] in our rsm", fd.App.FleetOp.HostPort(), i)
@@ -342,6 +347,7 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 				)
 
 				internal.TraceSlack(payload, "missing rsm")
+				atomic.AddInt32(&globalQuit, 1)
 				break
 			}
 		}
@@ -359,5 +365,11 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 		}
 
 		go do()
+
+		// For now, if we have a missing round in our rsm, we terminate.
+		// Allow the startup sequence to rebuild our local rsm.
+		if atomic.LoadInt32(&globalQuit) > 0 {
+			fd.App.TerminateCh <- struct{}{} // terminate self
+		}
 	}
 }

@@ -249,7 +249,6 @@ type ReachConsensusOutput struct {
 	Round int64  `json:"round,omitempty"`
 	Key   string `json:"key,omitempty"`
 	Value string `json:"value,omitempty"`
-	Count int    `json:"count,omitempty"`
 }
 
 // ReachConsensus is our generic function to reach consensus on a value across a quorum of nodes
@@ -263,10 +262,11 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	in.FleetData.consensusMutex.Lock()
 	defer in.FleetData.consensusMutex.Unlock()
 
+	bctx := context.Background()
 	out, err := getLastPaxosRound(ctx, in.FleetData)
 	if !out.Committed {
 		// This is our way of attempting to reset a stuck chain/round number.
-		in.FleetData.App.Client.ReadWriteTransaction(ctx,
+		in.FleetData.App.Client.ReadWriteTransaction(bctx,
 			func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 				var q strings.Builder
 				fmt.Fprintf(&q, "delete from %s ", *flags.Meta)
@@ -280,7 +280,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	}
 
 	nextRound := out.Round + 1
-	err = writeMeta(ctx, writeMetaInput{
+	err = writeMeta(bctx, writeMetaInput{
 		FleetData: in.FleetData,
 		Meta: metaT{
 			Id:    "chain",
@@ -299,7 +299,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 			return
 		}
 
-		err := commitMeta(ctx, writeMetaInput{
+		err := commitMeta(bctx, writeMetaInput{
 			FleetData: in.FleetData,
 			Meta: metaT{
 				Id:    "chain",
@@ -401,27 +401,12 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		CtrlBroadcastPaxosSetValue,
 	))
 
-	// TODO: Not a good idea; we could end up with a massive number of goroutines here.
-	go func() {
-		var skipSelf bool
-		if len(in.FleetData.App.FleetOp.Members()) > 1 {
-			skipSelf = true
-		}
-
-		in.FleetData.App.FleetOp.Broadcast(ctx, b, hedge.BroadcastArgs{SkipSelf: skipSelf})
-	}()
-
-	var count int
-	if !in.fwd { // leader
-		count = in.FleetData.StateMachine.Apply(value)
-		atomic.StoreInt64(&in.FleetData.SetValueLastRound, nextRound)
-	}
+	in.FleetData.App.FleetOp.Broadcast(ctx, b)
 
 	commit = true // commit our round number (see defer)
 	return &ReachConsensusOutput{
 		Round: nextRound,
 		Key:   in.Key,
 		Value: in.Value,
-		Count: count,
 	}, nil
 }
