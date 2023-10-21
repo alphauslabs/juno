@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -131,6 +130,10 @@ func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, 
 }
 
 func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	if atomic.LoadInt32(&fd.SetValueReady) == 0 {
+		return nil, fmt.Errorf("node [%v] not ready", *flags.Id)
+	}
+
 	var data Accept // reuse this struct for the broadcast
 	json.Unmarshal(e.Data(), &data)
 	err := writeMeta(context.Background(), writeMetaInput{
@@ -149,33 +152,42 @@ func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, erro
 	diff := data.Round - atomic.LoadInt64(&fd.SetValueLastRound)
 	switch {
 	case diff > 1: // for later
-		glog.Infof("__saveForLater: round=%v, value=%v", data.Round, data.Value)
-		fd.muSetValue.Lock()
-		fd.SetValueTempPipe[int(data.Round)] = data.Value
-		fd.muSetValue.Unlock()
+		glog.Infof("__saveForLater: round=%v, value=%v, diff=%v", data.Round, data.Value, diff)
+		fd.SetValueMtx.Lock()
+		fd.SetValueHistory[int(data.Round)] = &SetValueHistoryT{Value: data.Value}
+		fd.SetValueMtx.Unlock()
+
+		// Try to get missing values.
+		glog.Infof("__start:BuildRsm")
+		BuildRsm(context.Background(), fd, true)
+		glog.Infof("__end:BuildRsm")
 	case diff == 1: // expected round
 		fd.StateMachine.Apply(data.Value)
-		fd.muSetValue.Lock()
-		copy := fd.SetValueTempPipe
-		fd.SetValueTempPipe = map[int]string{} // clear
-		fd.muSetValue.Unlock()
+		atomic.StoreInt64(&fd.SetValueLastRound, data.Round)
+		glog.Infof("applyNow[this]: round=%v, value=%v", data.Round, data.Value)
 
-		lastRound := data.Round
-		rounds := []int{}
-		if len(copy) > 0 {
-			for k := range copy {
-				rounds = append(rounds, k)
+		fd.SetValueMtx.Lock()
+		fd.SetValueHistory[int(data.Round)] = &SetValueHistoryT{
+			Value:   data.Value,
+			Applied: true,
+		}
+
+		n := int(data.Round)
+		for {
+			n++
+			if _, ok := fd.SetValueHistory[n]; !ok {
+				break
 			}
 
-			sort.Ints(rounds)
-			lastRound = int64(rounds[len(rounds)-1])
-			for _, n := range rounds {
-				fd.StateMachine.Apply(copy[n])
+			if !fd.SetValueHistory[n].Applied {
+				fd.StateMachine.Apply(fd.SetValueHistory[n].Value)
+				fd.SetValueHistory[n].Applied = true
+				atomic.StoreInt64(&fd.SetValueLastRound, int64(n))
+				glog.Infof("__applyNow[hist]: round=%v, value=%v", n, fd.SetValueHistory[n].Value)
 			}
 		}
 
-		glog.Infof("__applyNow: round=%v, value=%v, also=%v", data.Round, data.Value, rounds)
-		atomic.StoreInt64(&fd.SetValueLastRound, lastRound)
+		fd.SetValueMtx.Unlock()
 	}
 
 	return nil, nil

@@ -89,15 +89,19 @@ func NewRsm() *rsmT {
 }
 
 // BuildRsm builds the state machine to it's current state from our replicated log.
-func BuildRsm(ctx context.Context, fd *FleetData) error {
-	defer func(begin time.Time) { glog.Infof("fn:BuildRsm took %v", time.Since(begin)) }(time.Now())
+func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
+	defer func(begin time.Time) {
+		atomic.StoreInt32(&fd.SetValueReady, 1)
+		glog.Infof("fn:BuildRsm took %v", time.Since(begin))
+	}(time.Now())
 
 	paused := make(chan struct{}, 1)
-	nctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go broadcastRebuildRsmHeartbeat(nctx, fd, paused)
-
-	<-paused // wait for the signal that others have acknowledged pause
+	if !noBroadcast {
+		nctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go broadcastRebuildRsmHeartbeat(nctx, fd, paused)
+		<-paused // wait for the signal that others have acknowledged pause
+	}
 
 	retries := -1
 	var end bool
@@ -120,13 +124,9 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 		}
 
 		var lpr lastPaxosRoundOutput
-		err = json.Unmarshal(outb, &lpr)
-		if err != nil {
-			glog.Errorf("Unmarshal failed: %v", err)
-			return err
-		}
+		json.Unmarshal(outb, &lpr)
 
-		glog.Infof("latest=%+v", lpr)
+		glog.Infof("[retry=%v] latest=%+v", retries, lpr)
 		round := int(lpr.Round)
 		if !lpr.Committed {
 			round--
@@ -152,7 +152,7 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 
 		switch {
 		case len(missing) > 0:
-			glog.Infof("--> missing=%v", missing)
+			glog.Infof("[retry=%v] missing=%v", retries, missing)
 			bo := gaxv2.Backoff{} // 30s
 			var endIn bool
 			for i := 0; i < 10; i++ {
@@ -175,12 +175,7 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 				outs := fd.App.FleetOp.Broadcast(ctx, b, hedge.BroadcastArgs{SkipSelf: skipSelf})
 				for _, out := range outs {
 					var o []LearnValuesOutput
-					err = json.Unmarshal(out.Reply, &o)
-					if err != nil {
-						glog.Errorf("Unmarshal failed for %v: %v", out.Id, err)
-						continue
-					}
-
+					json.Unmarshal(out.Reply, &o)
 					for _, v := range o {
 						add[int(v.Value.Round)] = v.Value.Value
 					}
@@ -193,7 +188,7 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 					}
 
 					if sleep {
-						glog.Errorf("not matched, retry: missing=%v, add=%+v", missing, add)
+						glog.Errorf("not matched, retry=%v/%v, missing=%v, add=%+v", retries, i, missing, add)
 						time.Sleep(bo.Pause())
 						continue
 					}
@@ -218,13 +213,18 @@ func BuildRsm(ctx context.Context, fd *FleetData) error {
 			// Update our replicated state machine.
 			if retries > 0 {
 				fd.StateMachine.Reset()
+				glog.Infof("[retry=%v] reset statemachine", retries)
 			}
 
 			end = true
+			rounds := []int64{}
 			for _, v := range vals {
 				fd.StateMachine.Apply(v.Value)
 				atomic.StoreInt64(&fd.SetValueLastRound, v.Round)
+				rounds = append(rounds, v.Round)
 			}
+
+			glog.Infof("[retry=%v] applied: rounds=%v, n=%v", retries, rounds, len(rounds))
 		}
 	}
 

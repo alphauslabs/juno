@@ -190,9 +190,9 @@ func main() {
 
 	defer app.Client.Close()
 	fleetData := fleet.FleetData{
-		App:              app,
-		StateMachine:     fleet.NewRsm(),
-		SetValueTempPipe: map[int]string{},
+		App:             app,
+		StateMachine:    fleet.NewRsm(),
+		SetValueHistory: map[int]*fleet.SetValueHistoryT{},
 	}
 
 	fleetData.BuildRsmWip = timedoff.New(time.Second*2, &timedoff.CallbackT{
@@ -246,7 +246,7 @@ func main() {
 	})
 
 	// Build our replicated state machine.
-	fleet.BuildRsm(cctx(ctx), &fleetData)
+	fleet.BuildRsm(cctx(ctx), &fleetData, false)
 
 	// Monitor any drift in our replicated log.
 	go fleet.MonitorRsmDrift(cctx(ctx), &fleetData)

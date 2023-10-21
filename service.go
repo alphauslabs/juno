@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"sync/atomic"
 	"time"
 
 	"github.com/alphauslabs/juno/internal"
@@ -78,7 +77,6 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 			fleet.CtrlLeaderFwdConsensus,
 		))
 
-		lr := atomic.LoadInt64(&s.fd.SetValueLastRound)
 		outb, err := fleet.SendToLeader(ctx, s.fd.App, b)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, err.Error())
@@ -90,19 +88,19 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 
-		// Naive way of telling we received the SetValue broadcast.
-		var attempts int
 		for {
-			lr2 := atomic.LoadInt64(&s.fd.SetValueLastRound)
-			if lr != lr2 {
-				break
-			} else {
-				time.Sleep(time.Millisecond * 1)
-				attempts++
-				if attempts >= 500 { // 500ms
-					return nil, status.Errorf(codes.Internal, "Cannot get value.")
-				}
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
 			}
+
+			s.fd.SetValueMtx.Lock()
+			copy, ok := s.fd.SetValueHistory[int(out.Round)]
+			s.fd.SetValueMtx.Unlock()
+			if ok && copy.Applied {
+				break
+			}
+
+			time.Sleep(time.Millisecond * 1)
 		}
 
 		count := len(s.fd.StateMachine.Members(req.Key))

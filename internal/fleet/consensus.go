@@ -246,6 +246,7 @@ type ReachConsensusInput struct {
 }
 
 type ReachConsensusOutput struct {
+	Round int64  `json:"round,omitempty"`
 	Key   string `json:"key,omitempty"`
 	Value string `json:"value,omitempty"`
 	Count int    `json:"count,omitempty"`
@@ -278,11 +279,12 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		return nil, fmt.Errorf("Operation pending. Please try again later.")
 	}
 
+	nextRound := out.Round + 1
 	err = writeMeta(ctx, writeMetaInput{
 		FleetData: in.FleetData,
 		Meta: metaT{
 			Id:    "chain",
-			Round: out.Round + 1,
+			Round: nextRound,
 			Value: fmt.Sprintf("%v/%v", in.FleetData.App.FleetOp.HostPort(), *flags.Id),
 		},
 	})
@@ -301,7 +303,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 			FleetData: in.FleetData,
 			Meta: metaT{
 				Id:    "chain",
-				Round: out.Round + 1,
+				Round: nextRound,
 			},
 		})
 
@@ -322,7 +324,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	ch := make(chan hedge.BroadcastOutput)
 	b, _ := json.Marshal(internal.NewEvent(
 		Accept{
-			Round:    out.Round + 1,
+			Round:    nextRound,
 			AcceptId: 0,
 			NodeId:   int64(*flags.Id),
 			Value:    value,
@@ -385,14 +387,14 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		FleetData: in.FleetData,
 		Meta: metaT{
 			Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
-			Round: out.Round + 1,
+			Round: nextRound,
 			Value: value,
 		},
 	})
 
 	b, _ = json.Marshal(internal.NewEvent(
 		Accept{ // reuse this struct
-			Round: out.Round + 1,
+			Round: nextRound,
 			Value: value,
 		},
 		EventSource,
@@ -412,9 +414,14 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	var count int
 	if !in.fwd { // leader
 		count = in.FleetData.StateMachine.Apply(value)
-		atomic.StoreInt64(&in.FleetData.SetValueLastRound, out.Round+1)
+		atomic.StoreInt64(&in.FleetData.SetValueLastRound, nextRound)
 	}
 
 	commit = true // commit our round number (see defer)
-	return &ReachConsensusOutput{Key: in.Key, Value: in.Value, Count: count}, nil
+	return &ReachConsensusOutput{
+		Round: nextRound,
+		Key:   in.Key,
+		Value: in.Value,
+		Count: count,
+	}, nil
 }

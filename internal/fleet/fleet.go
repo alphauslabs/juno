@@ -14,6 +14,11 @@ var (
 	ErrWipRebuild     = fmt.Errorf("juno: State machine rebuild in progress. Please try again later.")
 )
 
+type SetValueHistoryT struct {
+	Value   string
+	Applied bool
+}
+
 type FleetData struct {
 	App *appdata.AppData // global appdata
 
@@ -22,9 +27,10 @@ type FleetData struct {
 	BuildRsmWip *timedoff.TimedOff // pause ops when active
 	BuildRsmOn  int64              // non-zero means someone is rebuilding their RSM
 
+	SetValueMtx       sync.RWMutex
+	SetValueHistory   map[int]*SetValueHistoryT // track incoming rounds since online, not complete
 	SetValueLastRound int64
-	SetValueTempPipe  map[int]string
-	muSetValue        sync.Mutex
+	SetValueReady     int32
 
 	consensusMutex sync.Mutex // makes calling ReachConsensus synchronous; leader only
 }
