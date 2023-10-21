@@ -211,10 +211,8 @@ func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
 			}
 		default:
 			// Update our replicated state machine.
-			if retries > 0 {
-				fd.StateMachine.Reset()
-				glog.Infof("[retry=%v] reset statemachine", retries)
-			}
+			fd.StateMachine.Reset()
+			glog.Infof("[retry=%v] reset statemachine", retries)
 
 			end = true
 			rounds := []int64{}
