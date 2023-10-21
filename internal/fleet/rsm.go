@@ -107,7 +107,7 @@ func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
 	var end bool
 	for {
 		retries++
-		if retries >= 10 || end {
+		if retries >= 20 || end {
 			break
 		}
 
@@ -211,10 +211,8 @@ func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
 			}
 		default:
 			// Update our replicated state machine.
-			fd.StateMachine.Reset()
-			glog.Infof("[retry=%v] reset statemachine", retries)
-
 			end = true
+			fd.StateMachine.Reset()
 			rounds := []int64{}
 			for _, v := range vals {
 				fd.StateMachine.Apply(v.Value)

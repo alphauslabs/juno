@@ -158,9 +158,9 @@ func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, erro
 		fd.SetValueMtx.Unlock()
 
 		// Try to get missing values.
-		glog.Infof("__start:BuildRsm")
+		glog.Infof("__start:BuildRsm from broadcast")
 		BuildRsm(context.Background(), fd, true)
-		glog.Infof("__end:BuildRsm")
+		glog.Infof("__end:BuildRsm from broadcast")
 	case diff == 1: // expected round
 		fd.StateMachine.Apply(data.Value)
 		atomic.StoreInt64(&fd.SetValueLastRound, data.Round)
