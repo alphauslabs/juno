@@ -9,6 +9,7 @@
 *.dylib
 juno
 juno.yaml
+build.sh
 bin/
 
 # Test binary, built with `go test -c`
