@@ -290,10 +290,9 @@ func broadcastRebuildRsmHeartbeat(ctx context.Context, fd *FleetData, paused cha
 
 // MonitorRsmDrift monitors our local replicated log of missing indeces.
 func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
-	ticker := time.NewTicker(time.Second * 10)
+	ticker := time.NewTicker(time.Second * 5)
 	defer ticker.Stop()
 
-	var globalQuit int32
 	var active int32
 	do := func() {
 		atomic.StoreInt32(&active, 1)
@@ -337,6 +336,7 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 			len(fd.StateMachine.Members("1")),
 		)
 
+		var term bool
 		for i := 1; i < round; i++ { // we are more interested in the in-betweens
 			if _, ok := ins[i]; !ok {
 				glog.Infof("[%v] _____missing [%v] in our rsm", fd.App.FleetOp.HostPort(), i)
@@ -347,9 +347,17 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 				)
 
 				internal.TraceSlack(payload, "missing rsm")
-				atomic.AddInt32(&globalQuit, 1)
+				term = true
 				break
 			}
+		}
+
+		if term {
+			// For now, if we have a missing round in our rsm, we terminate.
+			// Allow the startup sequence to rebuild our local rsm.
+			fd.App.TerminateCh <- struct{}{} // terminate self
+		} else {
+			atomic.StoreInt32(&fd.ApiAddToSetReady, 1) // tell API layer we are ready
 		}
 	}
 
@@ -365,13 +373,5 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 		}
 
 		go do()
-
-		// For now, if we have a missing round in our rsm, we terminate.
-		// Allow the startup sequence to rebuild our local rsm.
-		if atomic.LoadInt32(&globalQuit) > 0 {
-			fd.App.TerminateCh <- struct{}{} // terminate self
-		}
-
-		atomic.StoreInt32(&fd.ApiAddToSetReady, 1) // tell API layer we are ready
 	}
 }
