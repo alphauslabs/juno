@@ -196,9 +196,9 @@ func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
 				}
 
 				endIn = true
-				wmeta := []metaT{}
+				wmeta := []MetaT{}
 				for k, v := range add {
-					wmeta = append(wmeta, metaT{
+					wmeta = append(wmeta, MetaT{
 						Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
 						Round: int64(k),
 						Value: v,
@@ -293,25 +293,38 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 	ticker := time.NewTicker(time.Second * 5)
 	defer ticker.Stop()
 
-	var active int32
+	var startSnapshot int64
+	var lastRound int64
+	var active int32 // do() is running, wait next round
 	do := func() {
 		atomic.StoreInt32(&active, 1)
 		defer atomic.StoreInt32(&active, 0)
 
-		b, _ := json.Marshal(internal.NewEvent(
-			struct{}{}, // unused
-			EventSource,
-			CtrlLeaderGetLatestRound,
-		))
+		var lpr lastPaxosRoundOutput
+		switch {
+		case IsLeader(fd):
+			var err error
+			lpr, err = getLastPaxosRound(ctx, fd)
+			if err != nil {
+				glog.Errorf("getLastPaxosRound failed: %v", err)
+				return
+			}
+		default:
+			b, _ := json.Marshal(internal.NewEvent(
+				struct{}{}, // unused
+				EventSource,
+				CtrlLeaderGetLatestRound,
+			))
 
-		outb, err := SendToLeader(ctx, fd.App, b, SendToLeaderExtra{RetryCount: 1})
-		if err != nil {
-			glog.Errorf("SendToLeader failed: %v", err)
-			return
+			outb, err := SendToLeader(ctx, fd.App, b, SendToLeaderExtra{RetryCount: 1})
+			if err != nil {
+				glog.Errorf("SendToLeader failed: %v", err)
+				return
+			}
+
+			json.Unmarshal(outb, &lpr)
 		}
 
-		var lpr lastPaxosRoundOutput
-		json.Unmarshal(outb, &lpr)
 		round := int(lpr.Round)
 		if !lpr.Committed {
 			round--
@@ -357,7 +370,24 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 			// Allow the startup sequence to rebuild our local rsm.
 			fd.App.TerminateCh <- struct{}{} // terminate self
 		} else {
-			atomic.StoreInt32(&fd.ApiAddToSetReady, 1) // tell API layer we are ready
+			atomic.StoreInt32(&fd.AddToSetReady, 1) // tell API layer we are ready
+		}
+
+		if IsLeader(fd) { // let the leader initiate snapshotting
+			lr := atomic.LoadInt64(&fd.SetValueLastRound)
+			atomic.StoreInt64(&lastRound, lr)
+			if atomic.LoadInt64(&lastRound) == lr {
+				n := atomic.AddInt64(&startSnapshot, 1)
+				if n%12 == 0 { // every minute of no activity
+					b, _ := json.Marshal(internal.NewEvent(
+						struct{}{},
+						EventSource,
+						CtrlBroadcastDoSnapshot,
+					))
+
+					fd.App.FleetOp.Broadcast(ctx, b)
+				}
+			}
 		}
 	}
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/alphauslabs/juno/internal"
@@ -60,6 +61,14 @@ type sMetaT struct {
 	Committed spanner.NullTime
 }
 
+type MetaT struct {
+	Id        string    `json:"id"`
+	Round     int64     `json:"round"`
+	Value     string    `json:"value"`
+	Updated   time.Time `json:"updated"`
+	Committed time.Time `json:"committed"`
+}
+
 type lastPaxosRoundOutput struct {
 	Round     int64  `json:"round"`
 	Value     string `json:"value"`
@@ -102,14 +111,9 @@ func getLastPaxosRound(ctx context.Context, fd *FleetData) (lastPaxosRoundOutput
 	return out, nil
 }
 
-type RoundInfo struct {
-	Round int64  `json:"round"` // multipaxos round number
-	Value string `json:"value"` // agreed value for this round
-}
-
 // getValues gets all values for a specific node to apply to its internal rsm.
-func getValues(ctx context.Context, fd *FleetData) ([]RoundInfo, error) {
-	out := []RoundInfo{}
+func getValues(ctx context.Context, fd *FleetData) ([]MetaT, error) {
+	out := []MetaT{}
 	var q strings.Builder
 	fmt.Fprintf(&q, "select round, value from %s ", *flags.Meta)
 	fmt.Fprintf(&q, "where id = '%v/value' order by round asc", *flags.Id)
@@ -131,7 +135,7 @@ func getValues(ctx context.Context, fd *FleetData) ([]RoundInfo, error) {
 			return out, err
 		}
 
-		out = append(out, RoundInfo{
+		out = append(out, MetaT{
 			Round: v.Round.Int64,
 			Value: internal.SpannerString(v.Value),
 		})
@@ -140,15 +144,9 @@ func getValues(ctx context.Context, fd *FleetData) ([]RoundInfo, error) {
 	return out, nil
 }
 
-type metaT struct {
-	Id    string
-	Round int64
-	Value string
-}
-
 type writeMetaInput struct {
 	FleetData *FleetData
-	Meta      metaT
+	Meta      MetaT
 }
 
 func writeMeta(ctx context.Context, in writeMetaInput) error {
@@ -186,7 +184,7 @@ func commitMeta(ctx context.Context, in writeMetaInput) error {
 
 type writeNoteMetaInput struct {
 	FleetData *FleetData
-	Meta      []metaT
+	Meta      []MetaT
 }
 
 func writeNodeMeta(ctx context.Context, in *writeNoteMetaInput) error {
@@ -282,7 +280,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	nextRound := out.Round + 1
 	err = writeMeta(bctx, writeMetaInput{
 		FleetData: in.FleetData,
-		Meta: metaT{
+		Meta: MetaT{
 			Id:    "chain",
 			Round: nextRound,
 			Value: fmt.Sprintf("%v/%v", in.FleetData.App.FleetOp.HostPort(), *flags.Id),
@@ -301,7 +299,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 
 		err := commitMeta(bctx, writeMetaInput{
 			FleetData: in.FleetData,
-			Meta: metaT{
+			Meta: MetaT{
 				Id:    "chain",
 				Round: nextRound,
 			},
@@ -385,7 +383,7 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	// This write is to ensure that the leader will always have the latest agreed value.
 	writeMeta(ctx, writeMetaInput{
 		FleetData: in.FleetData,
-		Meta: metaT{
+		Meta: MetaT{
 			Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
 			Round: nextRound,
 			Value: value,

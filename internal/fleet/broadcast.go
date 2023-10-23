@@ -27,6 +27,7 @@ var (
 	CtrlBroadcastPaxosPhase2Accept  = "CTRL_BROADCAST_PAXOS_PHASE2_ACCEPT"
 	CtrlBroadcastPaxosSetValue      = "CTRL_BROADCAST_PAXOS_SET_VALUE"
 	CtrlBroadcastPaxosLearnValues   = "CTRL_BROADCAST_PAXOS_LEARN_VALUES"
+	CtrlBroadcastDoSnapshot         = "CTRL_BROADCAST_DO_SNAPSHOT"
 
 	fnBroadcast = map[string]func(*FleetData, *cloudevents.Event) ([]byte, error){
 		CtrlBroadcastTest:               doBroadcastTest,
@@ -36,6 +37,7 @@ var (
 		CtrlBroadcastPaxosPhase2Accept:  doBroadcastPaxosPhase2Accept,
 		CtrlBroadcastPaxosSetValue:      doBroadcastPaxosSetValue,
 		CtrlBroadcastPaxosLearnValues:   doBroadcastPaxosLearnValues,
+		CtrlBroadcastDoSnapshot:         doBroadcastDoSnapshot,
 	}
 )
 
@@ -97,7 +99,7 @@ func doBroadcastPaxosPhase2Accept(fd *FleetData, e *cloudevents.Event) ([]byte, 
 	case data.AcceptId == 0: // leader, always accept
 		err := writeNodeMeta(context.Background(), &writeNoteMetaInput{
 			FleetData: fd,
-			Meta: []metaT{
+			Meta: []MetaT{
 				{
 					Id:    fmt.Sprintf("%v/lastPromisedId", int64(*flags.Id)),
 					Round: data.Round,
@@ -138,7 +140,7 @@ func doBroadcastPaxosSetValue(fd *FleetData, e *cloudevents.Event) ([]byte, erro
 	json.Unmarshal(e.Data(), &data)
 	err := writeMeta(context.Background(), writeMetaInput{
 		FleetData: fd,
-		Meta: metaT{
+		Meta: MetaT{
 			Id:    fmt.Sprintf("%v/value", int64(*flags.Id)),
 			Round: data.Round,
 			Value: data.Value,
@@ -237,4 +239,33 @@ func doBroadcastPaxosLearnValues(fd *FleetData, e *cloudevents.Event) ([]byte, e
 
 	outb, _ := json.Marshal(out)
 	return outb, nil
+}
+
+func doBroadcastDoSnapshot(fd *FleetData, e *cloudevents.Event) ([]byte, error) {
+	ctx := context.Background()
+	outs, err := getValues(ctx, fd)
+	if err != nil {
+		glog.Errorf("getValues failed, wait next round: %v", err)
+		return nil, nil
+	}
+
+	limit := len(outs) - 2
+	rsm := NewRsm()
+	var snapshotRound int64
+	for i, out := range outs {
+		if i >= limit {
+			break
+		}
+
+		snapshotRound = out.Round
+		rsm.Apply(out.Value)
+	}
+
+	if snapshotRound < 1 {
+		return nil, nil
+	}
+
+	// Do snapshot.
+	glog.Infof("todo: snapshot at [%v] for node%v", snapshotRound, *flags.Id)
+	return nil, nil
 }

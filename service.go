@@ -31,7 +31,7 @@ func (s *service) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.Unlock
 }
 
 func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.AddToSetResponse, error) {
-	if atomic.LoadInt32(&s.fd.ApiAddToSetReady) == 0 {
+	if atomic.LoadInt32(&s.fd.AddToSetReady) == 0 {
 		m := fmt.Sprintf("Node %v not yet ready. Please try again later.", *flags.Id)
 		return nil, status.Errorf(codes.Unavailable, m)
 	}

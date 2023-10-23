@@ -27,7 +27,7 @@ type FleetData struct {
 	BuildRsmWip *timedoff.TimedOff // pause ops when active
 	BuildRsmOn  int64              // non-zero means someone is rebuilding their RSM
 
-	ApiAddToSetReady  int32 // non-zero mean we are ready to serve
+	AddToSetReady     int32 // non-zero mean we are ready to serve
 	SetValueMtx       sync.RWMutex
 	SetValueHistory   map[int]*SetValueHistoryT // track incoming rounds since online, not complete
 	SetValueLastRound int64
