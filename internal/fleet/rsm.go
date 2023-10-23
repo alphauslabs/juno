@@ -371,5 +371,7 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 		if atomic.LoadInt32(&globalQuit) > 0 {
 			fd.App.TerminateCh <- struct{}{} // terminate self
 		}
+
+		atomic.StoreInt32(&fd.ApiAddToSetReady, 1) // tell API layer we are ready
 	}
 }

@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/alphauslabs/juno/internal"
+	"github.com/alphauslabs/juno/internal/flags"
 	"github.com/alphauslabs/juno/internal/fleet"
 	v1 "github.com/alphauslabs/juno/proto/v1"
 	"github.com/golang/glog"
@@ -28,6 +31,11 @@ func (s *service) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.Unlock
 }
 
 func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.AddToSetResponse, error) {
+	if atomic.LoadInt32(&s.fd.ApiAddToSetReady) == 0 {
+		m := fmt.Sprintf("Node %v not yet ready. Please try again later.", *flags.Id)
+		return nil, status.Errorf(codes.Unavailable, m)
+	}
+
 	defer func(begin time.Time) { glog.Infof("method AddToSet took %v", time.Since(begin)) }(time.Now())
 
 	reqb, _ := json.Marshal(req)
