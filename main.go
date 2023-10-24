@@ -38,20 +38,15 @@ var (
 )
 
 func test() {
-	rsm := make(map[string]map[string]struct{})
-	rsm["1"] = make(map[string]struct{})
-	rsm["1"]["1"] = struct{}{}
-	rsm["1"]["2"] = struct{}{}
-	rsm["1"]["3"] = struct{}{}
-	rsm["1"]["3"] = struct{}{}
-	slog.Info("len:", "root", len(rsm), "1", len(rsm["1"]))
-
-	copy := make(map[string]map[string]struct{})
-	for k, v := range rsm {
-		copy[k] = v
+	// s := "+key value /path/here"
+	s := "1 link:963826138034/2023-09-02 /path/here"
+	ss := strings.Split(s, " ")
+	val := strings.Join(ss[1:len(ss)-1], " ")
+	if len(ss) == 2 {
+		val = ss[1]
 	}
 
-	slog.Info("copy:", "val", copy)
+	slog.Info("len:", "value", val, "path", ss[len(ss)-1])
 }
 
 func testClient() {

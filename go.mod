@@ -4,6 +4,7 @@ go 1.21.2
 
 require (
 	cloud.google.com/go/spanner v1.51.0
+	cloud.google.com/go/storage v1.30.1
 	github.com/cloudevents/sdk-go/v2 v2.14.0
 	github.com/flowerinthenight/hedge v1.13.3
 	github.com/flowerinthenight/timedoff v1.0.2
@@ -20,6 +21,7 @@ require (
 	cloud.google.com/go v0.110.9 // indirect
 	cloud.google.com/go/compute v1.23.1 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
+	cloud.google.com/go/iam v1.1.3 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect

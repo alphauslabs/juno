@@ -22,27 +22,60 @@ type rsmT struct {
 }
 
 // Apply applies cmd to its internal state machine.
-// The cmd format is <+key value>. The return value
-// is the total number of items under the input key.
+// The cmd format is <+key "value" [/path/to/file]>.
+// The return value is the total number of items
+// under the input key.
 func (s *rsmT) Apply(cmd string) int {
-	if !strings.HasPrefix(cmd, "+") {
+	switch {
+	case strings.HasPrefix(cmd, "+"):
+		ss := strings.Split(cmd[1:], " ")
+		if len(ss) < 2 {
+			return -1 // error
+		}
+
+		var path string
+		key := ss[0]
+		val := strings.Join(ss[1:len(ss)-1], " ")
+		if len(ss) == 2 {
+			val = ss[1]
+		}
+
+		if len(ss) > 2 {
+			path = ss[len(ss)-1]
+		}
+
+		s.mu.Lock()
+		if _, ok := s.set[key]; !ok {
+			s.set[key] = make(map[string]struct{})
+		}
+
+		s.set[key][val] = struct{}{}
+		n := len(s.set[key])
+		s.mu.Unlock()
+
+		// See if we have a valid snapshot.
+		if path != "" && strings.HasPrefix(path, "_path:") {
+			object := strings.Split(path, ":")[1]
+			data, err := internal.GetSnapshot(object)
+			if err != nil {
+				glog.Errorf("GetSnapshot failed: %v", err)
+			} else {
+				var copy map[string]map[string]struct{}
+				err = json.Unmarshal(data, &copy)
+				if err != nil {
+					glog.Errorf("Unmarshal failed: %v", err)
+				} else {
+					s.mu.Lock()
+					s.set = copy
+					s.mu.Unlock()
+				}
+			}
+		}
+
+		return n
+	default:
 		return -1 // error
 	}
-
-	ss := strings.Split(cmd[1:], " ")
-	if len(ss) != 2 {
-		return -1 //error
-	}
-
-	s.mu.Lock()
-	if _, ok := s.set[ss[0]]; !ok {
-		s.set[ss[0]] = make(map[string]struct{})
-	}
-
-	s.set[ss[0]][ss[1]] = struct{}{}
-	n := len(s.set[ss[0]])
-	s.mu.Unlock()
-	return n
 }
 
 // Members return the current members of the input key.
@@ -140,12 +173,21 @@ func BuildRsm(ctx context.Context, fd *FleetData, noBroadcast bool) error {
 			return err
 		}
 
+		startRound := 1
 		for _, v := range vals {
 			ins[int(v.Round)] = struct{}{}
+			ss := strings.Split(v.Value, " ")
+			if strings.HasPrefix(ss[0], "+") {
+				if len(ss) > 2 {
+					if strings.HasPrefix(ss[len(ss)-1], "_path:") {
+						startRound = int(v.Round)
+					}
+				}
+			}
 		}
 
 		missing := []int{}
-		for i := 1; i <= round; i++ {
+		for i := startRound; i <= round; i++ {
 			if _, ok := ins[i]; !ok {
 				missing = append(missing, i)
 			}
@@ -337,8 +379,17 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 			return
 		}
 
+		startRound := 1
 		for _, v := range vals {
 			ins[int(v.Round)] = struct{}{}
+			ss := strings.Split(v.Value, " ")
+			if strings.HasPrefix(ss[0], "+") {
+				if len(ss) > 2 {
+					if strings.HasPrefix(ss[len(ss)-1], "_path:") {
+						startRound = int(v.Round)
+					}
+				}
+			}
 		}
 
 		glog.Infof("fn:MonitorRsmDrift: latest=%+v, committed=%v, leader=%v, me=%v, test(len(set[1]))=%v",
@@ -350,7 +401,7 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 		)
 
 		var term bool
-		for i := 1; i < round; i++ { // we are more interested in the in-betweens
+		for i := startRound; i < round; i++ { // we are more interested in the in-betweens
 			if _, ok := ins[i]; !ok {
 				glog.Infof("[%v] _____missing [%v] in our rsm", fd.App.FleetOp.HostPort(), i)
 				payload := fmt.Sprintf("[id%v/%v] missing [%v] in our rsm",

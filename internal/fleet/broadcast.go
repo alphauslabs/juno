@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"cloud.google.com/go/spanner"
 	"github.com/alphauslabs/juno/internal"
 	"github.com/alphauslabs/juno/internal/flags"
 	cloudevents "github.com/cloudevents/sdk-go/v2"
@@ -252,12 +253,14 @@ func doBroadcastDoSnapshot(fd *FleetData, e *cloudevents.Event) ([]byte, error) 
 	limit := len(outs) - 2
 	rsm := NewRsm()
 	var snapshotRound int64
+	var snapshotValue string
 	for i, out := range outs {
 		if i >= limit {
 			break
 		}
 
 		snapshotRound = out.Round
+		snapshotValue = out.Value
 		rsm.Apply(out.Value)
 	}
 
@@ -265,7 +268,55 @@ func doBroadcastDoSnapshot(fd *FleetData, e *cloudevents.Event) ([]byte, error) 
 		return nil, nil
 	}
 
-	// Do snapshot.
-	glog.Infof("todo: snapshot at [%v] for node%v", snapshotRound, *flags.Id)
+	object := fmt.Sprintf("juno/%v-%v.json", *flags.Id, snapshotRound)
+	copy := rsm.Clone()
+	b, _ := json.Marshal(copy)
+	err = internal.PutSnapshot(object, b)
+	if err != nil {
+		glog.Errorf("PutSnapshot failed: %v", err)
+		return nil, nil
+	}
+
+	glog.Infof("snapshot at [%v] for node%v, len=%v", snapshotRound, *flags.Id, len(b))
+
+	_, err = fd.App.Client.ReadWriteTransaction(ctx,
+		func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+			var q strings.Builder
+			fmt.Fprintf(&q, "update %s ", *flags.Meta)
+			fmt.Fprintf(&q, "set value = @val ")
+			fmt.Fprintf(&q, "where id = @id and round = @round")
+			stmt := spanner.Statement{
+				SQL: q.String(),
+				Params: map[string]interface{}{
+					"id":    fmt.Sprintf("%v/value", *flags.Id),
+					"round": snapshotRound,
+					"val":   fmt.Sprintf("%v _path:%v", snapshotValue, object),
+				},
+			}
+
+			_, err := txn.Update(ctx, stmt)
+			return err
+		},
+	)
+
+	if err != nil {
+		glog.Errorf("Update (_path:%v) failed: %v", object, err)
+		return nil, nil
+	}
+
+	_, err = fd.App.Client.ReadWriteTransaction(ctx,
+		func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+			var q strings.Builder
+			fmt.Fprintf(&q, "delete from %s ", *flags.Meta)
+			fmt.Fprintf(&q, "where id = '%v/value' and round < %v", *flags.Id, snapshotRound)
+			_, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
+			return err
+		},
+	)
+
+	if err != nil {
+		glog.Errorf("Update (delete < %v) failed: %v", snapshotRound, err)
+	}
+
 	return nil, nil
 }
