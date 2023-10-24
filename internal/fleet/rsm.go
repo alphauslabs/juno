@@ -392,12 +392,13 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 			}
 		}
 
-		glog.Infof("fn:MonitorRsmDrift: latest=%+v, committed=%v, leader=%v, me=%v, test(len(set[1]))=%v",
+		glog.Infof("fn:MonitorRsmDrift: latest=%+v, committed=%v, leader=%v, me=%v, len(set[1])=%v, len(set[2])=%v",
 			round,
 			lpr.Committed,
 			atomic.LoadInt64(&fd.App.LeaderId),
 			*flags.Id,
 			len(fd.StateMachine.Members("1")),
+			len(fd.StateMachine.Members("2")),
 		)
 
 		var term bool
