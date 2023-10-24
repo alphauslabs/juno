@@ -53,24 +53,30 @@ func (s *rsmT) Apply(cmd string) int {
 		n := len(s.set[key])
 		s.mu.Unlock()
 
-		// See if we have a valid snapshot.
-		if path != "" && strings.HasPrefix(path, "_path:") {
+		func() {
+			// See if we have a valid snapshot.
+			if path == "" || !strings.HasPrefix(path, "_path:") {
+				return
+			}
+
 			object := strings.Split(path, ":")[1]
 			data, err := internal.GetSnapshot(object)
 			if err != nil {
 				glog.Errorf("GetSnapshot failed: %v", err)
-			} else {
-				var copy map[string]map[string]struct{}
-				err = json.Unmarshal(data, &copy)
-				if err != nil {
-					glog.Errorf("Unmarshal failed: %v", err)
-				} else {
-					s.mu.Lock()
-					s.set = copy
-					s.mu.Unlock()
-				}
+				return
 			}
-		}
+
+			var copy map[string]map[string]struct{}
+			err = json.Unmarshal(data, &copy)
+			if err != nil {
+				glog.Errorf("Unmarshal failed: %v", err)
+				return
+			}
+
+			s.mu.Lock()
+			s.set = copy
+			s.mu.Unlock()
+		}()
 
 		return n
 	default:
