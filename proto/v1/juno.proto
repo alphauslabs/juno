@@ -7,10 +7,7 @@ option go_package = "github.com/alphauslabs/juno/v1";
 // Juno service definition.
 service Juno {
   // Attempt to acquire a named lock.
-  rpc Lock(LockRequest) returns (stream LockResponse);
-
-  // Release a previously acquired lock.
-  rpc Unlock(UnlockRequest) returns (UnlockResponse);
+  rpc Lock(stream LockRequest) returns (stream LockResponse);
 
   // Add an item to a set.
   rpc AddToSet(AddToSetRequest) returns (AddToSetResponse);
@@ -18,23 +15,36 @@ service Juno {
 
 // Request message for the Jupiter.Lock rpc.
 message LockRequest {
-  // Required. The name of the lock.
+  // Required during the initial call. The name of the lock.
   string name = 1;
+
+  // Optional. Lease time in seconds. Default is 30s. Minimum is 5s.
+  int64 leaseTime = 2;
+
+  // Optional. Set to true if you want to release the lock before its expiration period. Prioritized over `extend` when both are set to true.
+  bool release = 3;
+
+  // Optional. Set to true if you want to extend the leased lock.
+  bool extend = 4;
+
+  // Optional. Must be set to the received token (when the lock was acquired) when either `extend` or `release` is true.
+  string token = 5;
+
+  // Optional. If true, the API will block until the requested lock is released or has expired, giving the chance to attempt to reacquire the lock.
+  bool waitOnFail = 6;
 }
 
 // Response message for the Jupiter.Lock rpc.
 message LockResponse {
+  // The lock name used in the request payload.
   string name = 1;
-}
 
-// Request message for the Jupiter.Unlock rpc.
-message UnlockRequest {
-  // Required. The name of the lock.
-  string name = 1;
-}
+  // The lock token. Needed when extending the lock lease.
+  string token = 2;
 
-// Response message for the Jupiter.Unlock rpc.
-message UnlockResponse {}
+  // A general progress/activity indicator.
+  int64 heartbeat = 3;
+}
 
 // Request message for the Jupiter.AddToSet rpc.
 message AddToSetRequest {

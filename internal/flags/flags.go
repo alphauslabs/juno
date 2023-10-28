@@ -7,7 +7,7 @@ import (
 
 var (
 	Test      = flag.Bool("test", false, "Scratch pad, anything")
-	Client    = flag.String("client", "", "Run the test client code, fmt: <port[,key,val,{loopnum}]>")
+	Client    = flag.String("client", "", "Run the test client code, fmt: [lock:]<port[,key,val,{loopnum}]>")
 	Id        = flag.Int("id", 0, "Node id, should be a number, unique, and greater than 0")
 	NodeCount = flag.Int("nodecount", 3, "Expected number of nodes in the fleet")
 	Database  = flag.String("db", "", "Spanner database, fmt: projects/{v}/instances/{v}/databases/{v}")

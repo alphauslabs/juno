@@ -10,7 +10,7 @@ import (
 	"github.com/alphauslabs/juno/internal"
 	"github.com/alphauslabs/juno/internal/flags"
 	"github.com/alphauslabs/juno/internal/fleet"
-	v1 "github.com/alphauslabs/juno/proto/v1"
+	pb "github.com/alphauslabs/juno/proto/v1"
 	"github.com/golang/glog"
 	gaxv2 "github.com/googleapis/gax-go/v2"
 	"google.golang.org/grpc/codes"
@@ -19,18 +19,14 @@ import (
 
 type service struct {
 	fd *fleet.FleetData
-	v1.UnimplementedJunoServer
+	pb.UnimplementedJunoServer
 }
 
-func (s *service) Lock(in *v1.LockRequest, stream v1.Juno_LockServer) error {
-	return status.Errorf(codes.Unimplemented, "method Lock not implemented")
+func (s *service) Lock(stream pb.Juno_LockServer) error {
+	return nil
 }
 
-func (s *service) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.UnlockResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Unlock not implemented")
-}
-
-func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.AddToSetResponse, error) {
+func (s *service) AddToSet(ctx context.Context, req *pb.AddToSetRequest) (*pb.AddToSetResponse, error) {
 	if atomic.LoadInt32(&s.fd.AddToSetReady) == 0 {
 		m := fmt.Sprintf("Node %v not yet ready. Please try again later.", *flags.Id)
 		return nil, status.Errorf(codes.Unavailable, m)
@@ -118,5 +114,5 @@ func (s *service) AddToSet(ctx context.Context, req *v1.AddToSetRequest) (*v1.Ad
 	}
 
 	count := len(s.fd.StateMachine.Members(req.Key))
-	return &v1.AddToSetResponse{Key: out.Key, Count: int64(count)}, nil
+	return &pb.AddToSetResponse{Key: out.Key, Count: int64(count)}, nil
 }

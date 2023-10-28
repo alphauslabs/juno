@@ -22,7 +22,7 @@ import (
 	"github.com/alphauslabs/juno/internal/flags"
 	"github.com/alphauslabs/juno/internal/fleet"
 	rl "github.com/alphauslabs/juno/internal/ratelimit"
-	v1 "github.com/alphauslabs/juno/proto/v1"
+	pb "github.com/alphauslabs/juno/proto/v1"
 	"github.com/flowerinthenight/hedge"
 	"github.com/flowerinthenight/timedoff"
 	"github.com/golang/glog"
@@ -54,65 +54,87 @@ func testClient() {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	opts = append(opts, grpc.WithBlock())
-	ss := strings.Split(*flags.Client, ",")
-	key, val := "set1", "val1"
-	if len(ss) == 2 {
-		key = ss[1]
-	}
 
-	if len(ss) == 3 {
-		key = ss[1]
-		val = ss[2]
-	}
-
-	conn, err := grpc.DialContext(ctx, "localhost:"+ss[0], opts...)
-	if err != nil {
-		slog.Error("fail to dial:", "err", err)
-		return
-	}
-
-	defer conn.Close()
-	client := v1.NewJunoClient(conn)
-
-	if len(ss) == 4 {
-		slog.Info("start...")
-		key = ss[1]
-		val = ss[2]
-
-		n, err := strconv.Atoi(ss[3])
+	switch {
+	case strings.HasPrefix(*flags.Client, "lock:"):
+		line := strings.Split(*flags.Client, ":")[1]
+		ss := strings.Split(line, ",")
+		conn, err := grpc.DialContext(ctx, "localhost:"+ss[0], opts...)
 		if err != nil {
-			slog.Error(err.Error())
+			slog.Error("fail to dial:", "err", err)
 			return
 		}
 
-		for i := 0; i < n; i++ {
-			time.Sleep(time.Millisecond * 100)
-			out, err := client.AddToSet(ctx, &v1.AddToSetRequest{
+		defer conn.Close()
+		client := pb.NewJunoClient(conn)
+		stream, err := client.Lock(ctx)
+		if err != nil {
+			slog.Error("Lock failed:", "err", err)
+			return
+		}
+
+		_ = stream
+	default:
+		ss := strings.Split(*flags.Client, ",")
+		key, val := "set1", "val1"
+		if len(ss) == 2 {
+			key = ss[1]
+		}
+
+		if len(ss) == 3 {
+			key = ss[1]
+			val = ss[2]
+		}
+
+		conn, err := grpc.DialContext(ctx, "localhost:"+ss[0], opts...)
+		if err != nil {
+			slog.Error("fail to dial:", "err", err)
+			return
+		}
+
+		defer conn.Close()
+		client := pb.NewJunoClient(conn)
+
+		if len(ss) == 4 {
+			slog.Info("start...")
+			key = ss[1]
+			val = ss[2]
+
+			n, err := strconv.Atoi(ss[3])
+			if err != nil {
+				slog.Error(err.Error())
+				return
+			}
+
+			for i := 0; i < n; i++ {
+				time.Sleep(time.Millisecond * 100)
+				out, err := client.AddToSet(ctx, &pb.AddToSetRequest{
+					Key:   key,
+					Value: val,
+				})
+
+				if err != nil {
+					slog.Error("AddToSet failed:", "err", err)
+					continue
+				}
+
+				outb, _ := json.Marshal(out)
+				slog.Info("out:", "val", string(outb))
+			}
+		} else {
+			out, err := client.AddToSet(ctx, &pb.AddToSetRequest{
 				Key:   key,
 				Value: val,
 			})
 
 			if err != nil {
 				slog.Error("AddToSet failed:", "err", err)
-				continue
+				return
 			}
 
 			outb, _ := json.Marshal(out)
 			slog.Info("out:", "val", string(outb))
 		}
-	} else {
-		out, err := client.AddToSet(ctx, &v1.AddToSetRequest{
-			Key:   key,
-			Value: val,
-		})
-
-		if err != nil {
-			slog.Error("AddToSet failed:", "err", err)
-			return
-		}
-
-		outb, _ := json.Marshal(out)
-		slog.Info("out:", "val", string(outb))
 	}
 }
 
@@ -134,7 +156,7 @@ func grpcServe(ctx context.Context, fd *fleet.FleetData, done chan error) error 
 	)
 
 	svc := &service{fd: fd}
-	v1.RegisterJunoServer(gs, svc)
+	pb.RegisterJunoServer(gs, svc)
 
 	go func() {
 		<-ctx.Done()
