@@ -232,8 +232,8 @@ func main() {
 	)
 
 	done := make(chan error)
-	doneLock := make(chan error, 1)
-	go app.FleetOp.Run(cctx(ctx), doneLock)
+	doneOp := make(chan error, 1)
+	go app.FleetOp.Run(cctx(ctx), doneOp)
 
 	// Ensure leader is active before proceeding.
 	func() {
@@ -291,5 +291,5 @@ func main() {
 	}()
 
 	<-done
-	<-doneLock
+	<-doneOp
 }
