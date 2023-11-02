@@ -38,15 +38,22 @@ var (
 )
 
 func test() {
-	// s := "+key value /path/here"
-	s := "1 link:963826138034/2023-09-02 /path/here"
-	ss := strings.Split(s, " ")
-	val := strings.Join(ss[1:len(ss)-1], " ")
-	if len(ss) == 2 {
-		val = ss[1]
+	type t struct {
+		Key string
 	}
 
-	slog.Info("len:", "value", val, "path", ss[len(ss)-1])
+	slog.Info("now:", "value", time.Now().UTC().Format(time.RFC3339))
+
+	m := map[string]*t{}
+	m["a"] = &t{Key: "k"}
+	slog.Info("map:", "value", m["a"])
+
+	v := m["a"]
+	copy := *v
+	v.Key = "aa"
+	slog.Info("map:", "value", m["a"])
+	slog.Info("copy:", "value", copy)
+
 }
 
 func testClient() {

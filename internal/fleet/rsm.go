@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,18 +17,89 @@ import (
 	gaxv2 "github.com/googleapis/gax-go/v2"
 )
 
+type LockState struct {
+	Name     string
+	Token    string
+	State    int32     // 1 = locked, > 1 = extended, 0 = available|released
+	Start    time.Time // should be Spanner time, not local
+	Duration int64     // seconds
+	Error    error
+}
+
 type rsmT struct {
-	mu  sync.RWMutex
-	set map[string]map[string]struct{}
+	muLock sync.RWMutex
+	lock   map[string]*LockState // lock
+
+	muSet sync.RWMutex
+	set   map[string]map[string]struct{} // set
 }
 
 // Apply applies cmd to its internal state machine.
+//
+// GetLock:
+// The cmd format is </name token durationInSec>.
+// The return value is the lock state.
+//
+// ReleaseLock:
+// The cmd format is <\name token>.
+// The return value is the lock state.
+//
+// AddToSet:
 // The cmd format is <+key "value" [/path/to/file]>.
 // The return value is the total number of items
 // under the input key.
 func (s *rsmT) Apply(cmd string) int {
 	switch {
-	case strings.HasPrefix(cmd, "+"):
+	case strings.HasPrefix(cmd, "/"): // acquire lock
+		ss := strings.Split(cmd[1:], " ")
+		if len(ss) != 4 {
+			return -1 // TODO: handle this properly
+		}
+
+		name := ss[0]
+		token := ss[1]
+		start, _ := time.Parse(time.RFC3339, ss[2])
+		d, _ := strconv.ParseInt(ss[3], 10, 64)
+
+		var ret int
+		s.muLock.Lock()
+		if _, ok := s.lock[name]; !ok {
+			ret = 1
+			s.lock[name] = &LockState{
+				Name:     name,
+				Token:    token,
+				State:    1, // locked
+				Start:    start,
+				Duration: d,
+			}
+		} else {
+			glog.Errorf("lock %v not available", name)
+		}
+
+		s.muLock.Unlock()
+		return ret
+	case strings.HasPrefix(cmd, "\\"): // release lock
+		ss := strings.Split(cmd[1:], " ")
+		if len(ss) != 2 {
+			return -1 // TODO: handle this properly
+		}
+
+		name := ss[0]
+		token := ss[1]
+
+		var ret int
+		s.muLock.Lock()
+		if p, ok := s.lock[name]; ok {
+			if token == p.Token {
+				delete(s.lock, name)
+			}
+		} else {
+			ret = -1
+		}
+
+		s.muLock.Unlock()
+		return ret
+	case strings.HasPrefix(cmd, "+"): // add to set
 		ss := strings.Split(cmd[1:], " ")
 		if len(ss) < 2 {
 			return -1 // error
@@ -44,14 +116,14 @@ func (s *rsmT) Apply(cmd string) int {
 			path = ss[len(ss)-1]
 		}
 
-		s.mu.Lock()
+		s.muSet.Lock()
 		if _, ok := s.set[key]; !ok {
 			s.set[key] = make(map[string]struct{})
 		}
 
 		s.set[key][val] = struct{}{}
 		n := len(s.set[key])
-		s.mu.Unlock()
+		s.muSet.Unlock()
 
 		func() {
 			// See if we have a valid snapshot.
@@ -73,9 +145,9 @@ func (s *rsmT) Apply(cmd string) int {
 				return
 			}
 
-			s.mu.Lock()
+			s.muSet.Lock()
 			s.set = copy
-			s.mu.Unlock()
+			s.muSet.Unlock()
 		}()
 
 		return n
@@ -84,47 +156,63 @@ func (s *rsmT) Apply(cmd string) int {
 	}
 }
 
+func (s *rsmT) GetLockState(name string) LockState {
+	var copy LockState
+	s.muLock.Lock()
+	v, ok := s.lock[name]
+	if ok {
+		copy = *v
+		copy.Name = name
+	}
+
+	s.muLock.Unlock()
+	return copy
+}
+
 // Members return the current members of the input key.
 func (s *rsmT) Members(key string) []string {
 	m := []string{}
-	s.mu.Lock()
+	s.muSet.Lock()
 	for k := range s.set[key] {
 		m = append(m, k)
 	}
 
-	s.mu.Unlock()
+	s.muSet.Unlock()
 	return m
 }
 
 // Delete deletes the map under the input key.
 func (s *rsmT) Delete(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.muSet.Lock()
+	defer s.muSet.Unlock()
 	delete(s.set, key)
 }
 
 // Clone returns a copy of the internal set.
 func (s *rsmT) Clone() map[string]map[string]struct{} {
 	copy := make(map[string]map[string]struct{})
-	s.mu.Lock()
+	s.muSet.Lock()
 	for k, v := range s.set {
 		copy[k] = v
 	}
 
-	s.mu.Unlock()
+	s.muSet.Unlock()
 	return copy
 }
 
 // Reset resets the underlying map.
 func (s *rsmT) Reset() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.muSet.Lock()
+	defer s.muSet.Unlock()
 	s.set = map[string]map[string]struct{}{}
 }
 
 // NewRsm returns an instance of our replicated state machine set.
 func NewRsm() *rsmT {
-	return &rsmT{set: map[string]map[string]struct{}{}}
+	return &rsmT{
+		lock: map[string]*LockState{},
+		set:  map[string]map[string]struct{}{},
+	}
 }
 
 // BuildRsm builds the state machine to it's current state from our replicated log.
@@ -428,7 +516,7 @@ func MonitorRsmDrift(ctx context.Context, fd *FleetData) {
 			// Allow the startup sequence to rebuild our local rsm.
 			fd.App.TerminateCh <- struct{}{} // terminate self
 		} else {
-			atomic.StoreInt32(&fd.AddToSetReady, 1) // tell API layer we are ready
+			atomic.StoreInt32(&fd.Online, 1) // tell API layer we are ready
 		}
 
 		if IsLeader(fd) { // let the leader initiate snapshotting

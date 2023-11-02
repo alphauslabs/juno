@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -30,6 +31,67 @@ func StringToBytes(s string) []byte {
 			int
 		}{s, len(s)},
 	))
+}
+
+func GetSpannerCurrentTime(client *spanner.Client) time.Time {
+	in := &QuerySpannerSingleInput{
+		Client: client,
+		Query:  "select current_timestamp() as now",
+	}
+
+	rows, err := QuerySpannerSingle(context.Background(), in)
+	if err != nil {
+		return time.Time{}
+	}
+
+	type nowT struct {
+		Now spanner.NullTime
+	}
+
+	for _, row := range rows {
+		var v nowT
+		err = row.ToStruct(&v)
+		if err != nil {
+			return time.Time{}
+		}
+
+		return v.Now.Time
+	}
+
+	return time.Time{}
+}
+
+// LockTimeDiff returns the difference between lock's start time + duration against
+// Spanner's current time. Negative means already expired, else still active.
+func LockTimeDiff(client *spanner.Client, start string, duration int64) (int64, error) {
+	var q strings.Builder
+	fmt.Fprintf(&q, "select timestamp_diff(timestamp_add(timestamp '%v', ", start)
+	fmt.Fprintf(&q, "interval %v second), current_timestamp, second) as diff", duration)
+	in := &QuerySpannerSingleInput{
+		Client: client,
+		Query:  q.String(),
+	}
+
+	rows, err := QuerySpannerSingle(context.Background(), in)
+	if err != nil {
+		return 0, err
+	}
+
+	type diffT struct {
+		Diff spanner.NullInt64
+	}
+
+	for _, row := range rows {
+		var v diffT
+		err = row.ToStruct(&v)
+		if err != nil {
+			return 0, err
+		}
+
+		return v.Diff.Int64, nil
+	}
+
+	return 0, fmt.Errorf("Internal: something is wrong.")
 }
 
 func GetSnapshot(object string) ([]byte, error) {

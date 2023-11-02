@@ -13,10 +13,14 @@ import (
 	"github.com/alphauslabs/juno/internal/flags"
 	"github.com/flowerinthenight/hedge"
 	"github.com/golang/glog"
+	"github.com/google/uuid"
 )
 
 var (
-	CmdTypeAddToSet = "CMDTYPE_ADDTOSET"
+	CmdTypeGetLock     = "CMDTYPE_GET_LOCK"
+	CmdTypeExtendLock  = "CMDTYPE_EXTEND_LOCK"
+	CmdTypeReleaseLock = "CMDTYPE_RELEASE_LOCK"
+	CmdTypeAddToSet    = "CMDTYPE_ADDTOSET"
 )
 
 // Phase 1a:
@@ -212,13 +216,7 @@ func writeNodeMeta(ctx context.Context, in *writeNoteMetaInput) error {
 	// Actual spanner db writes.
 	var sperrs []error
 	func() {
-		// var n int
-		// defer func(begin time.Time, n *int) {
-		// 	glog.Infof("[spanner] %v written to %v, took %v", *n, *flags.Meta, time.Since(begin))
-		// }(time.Now(), &n)
-
 		for _, recs := range m {
-			// n += len(recs)
 			_, err := in.FleetData.App.Client.Apply(ctx, recs)
 			if err != nil {
 				glog.Errorf("spanner.Apply failed: %v", err)
@@ -256,14 +254,14 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 		return nil, ErrWipRebuild
 	}
 
-	// TODO: Observe perf with synchronous fn.
 	in.FleetData.consensusMutex.Lock()
 	defer in.FleetData.consensusMutex.Unlock()
 
 	bctx := context.Background()
 	out, err := getLastPaxosRound(ctx, in.FleetData)
+
+	// This is our way of attempting to reset a stuck chain/round number.
 	if !out.Committed {
-		// This is our way of attempting to reset a stuck chain/round number.
 		in.FleetData.App.Client.ReadWriteTransaction(bctx,
 			func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 				var q strings.Builder
@@ -312,8 +310,13 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 
 	var value string
 	switch in.CmdType {
+	case CmdTypeGetLock:
+		token := uuid.NewString()
+		now := internal.GetSpannerCurrentTime(in.FleetData.App.Client)
+		value = fmt.Sprintf("/%v %v %v %v",
+			in.Key, token, now.Format(time.RFC3339), in.Value) // fmt: </name token startTime durationInSec>
 	case CmdTypeAddToSet:
-		value = fmt.Sprintf("+%v %v", in.Key, in.Value) // addtoset fmt: <+key value>
+		value = fmt.Sprintf("+%v %v", in.Key, in.Value) // fmt: <+key value>
 	default:
 		return nil, fmt.Errorf("Unsupported command [%v].", in.CmdType)
 	}
@@ -405,6 +408,6 @@ func ReachConsensus(ctx context.Context, in *ReachConsensusInput) (*ReachConsens
 	return &ReachConsensusOutput{
 		Round: nextRound,
 		Key:   in.Key,
-		Value: in.Value,
+		Value: value,
 	}, nil
 }
